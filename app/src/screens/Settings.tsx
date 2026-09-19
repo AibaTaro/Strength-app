@@ -1,3 +1,4 @@
+import { newId } from "../domain/id";
 import { useRef, useState } from "react";
 import { useAppData } from "../state/AppContext";
 import { exportAppDataAsJson, parseImportedJson } from "../storage/storage";
@@ -180,7 +181,7 @@ export function Settings() {
           disabled={!newWeightKg}
           onClick={() => {
             addWeightHistory({
-              id: crypto.randomUUID(),
+              id: newId(),
               date: newWeightDate,
               weightKg: Number(newWeightKg),
               recordedAt: new Date().toISOString(),
@@ -198,7 +199,7 @@ export function Settings() {
           type="button"
           onClick={() =>
             addGoalHistory({
-              id: crypto.randomUUID(),
+              id: newId(),
               maintain: true,
               goalPrimary: data.personalSettings.goalPrimary ?? "health",
               setAt: new Date().toISOString(),

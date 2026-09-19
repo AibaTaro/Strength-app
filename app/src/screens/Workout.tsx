@@ -1,3 +1,4 @@
+import { newId } from "../domain/id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppData } from "../state/AppContext";
 import { activeIntervalsOfSession } from "../domain/aggregation";
@@ -118,7 +119,7 @@ function ExercisePanel({
         });
       } else {
         const record: SetRecord = {
-          id: crypto.randomUUID(),
+          id: newId(),
           sessionId,
           exerciseId: exercise.id,
           order: setsInSession.length,

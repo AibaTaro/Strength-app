@@ -1,3 +1,4 @@
+import { newId } from "./id";
 import type {
   AppData,
   Equipment,
@@ -179,7 +180,7 @@ export function buildProposal(params: BuildProposalParams): { proposal: Proposal
   });
 
   const proposal: Proposal = {
-    id: crypto.randomUUID(),
+    id: newId(),
     createdAt: now.toISOString(),
     rulesVersion: RULES_VERSION,
     personalSettingsSnapshot: { ...data.personalSettings },

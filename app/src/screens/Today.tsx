@@ -1,3 +1,4 @@
+import { newId } from "../domain/id";
 import { useMemo, useState } from "react";
 import { useAppData } from "../state/AppContext";
 import { buildProposal, evaluateAvailability } from "../domain/proposalBuilder";
@@ -21,6 +22,7 @@ export function Today({ onStartWorkout }: Props) {
   const [fatigue, setFatigue] = useState<"low" | "mid" | "high">("low");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [excludedReasons, setExcludedReasons] = useState<string[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const setsByExercise = useMemo(() => {
     const map = new Map<string, SetRecord[]>();
@@ -52,14 +54,25 @@ export function Today({ onStartWorkout }: Props) {
   }
 
   function handleBuildProposal() {
-    const { proposal: p, excluded } = buildProposal({
-      data,
-      selectedMuscles,
-      availableMinutes: minutes,
-      now: new Date(),
-    });
-    setProposal(p);
-    setExcludedReasons(excluded.map((e) => `${e.exercise.name}: ${e.unavailableReason ?? ""}`));
+    setErrorMessage(null);
+    try {
+      const { proposal: p, excluded } = buildProposal({
+        data,
+        selectedMuscles,
+        availableMinutes: minutes,
+        now: new Date(),
+      });
+      setProposal(p);
+      setExcludedReasons(excluded.map((e) => `${e.exercise.name}: ${e.unavailableReason ?? ""}`));
+      if (p.items.length === 0) {
+        setErrorMessage(
+          "条件に合う種目がありません。選んだ部位・使える時間・避けたい種目の設定を見直してください。除外理由は下の一覧を確認できます。"
+        );
+      }
+    } catch (e) {
+      setProposal(null);
+      setErrorMessage(`候補を作れませんでした: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   function recomputeItem(exerciseId: string): ProposalItem {
@@ -102,7 +115,7 @@ export function Today({ onStartWorkout }: Props) {
     if (!proposal) return;
     addProposal(proposal);
     const session = {
-      id: crypto.randomUUID(),
+      id: newId(),
       startedAt: new Date().toISOString(),
       pausedIntervals: [],
       status: "active" as const,
@@ -156,6 +169,12 @@ export function Today({ onStartWorkout }: Props) {
       <button type="button" onClick={handleBuildProposal}>
         候補を作る
       </button>
+
+      {errorMessage && (
+        <p role="alert" className="error-message">
+          {errorMessage}
+        </p>
+      )}
 
       {excludedReasons.length > 0 && (
         <details className="excluded-box">

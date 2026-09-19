@@ -215,3 +215,11 @@ button:disabled {
   color: #1a1a1a;
   font-weight: bold;
 }
+
+.error-message {
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+}
