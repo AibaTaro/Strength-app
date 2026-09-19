@@ -7,11 +7,15 @@ test.use({ deviceScaleFactor: 1.5 });
 
 const OUT = "../docs/screenshots";
 
-async function annotate(page: Page, targets: Locator[]) {
+async function annotate(page: Page, targets: Locator[], figure: string) {
   const boxes = [];
   for (const t of targets) boxes.push(await t.first().boundingBox());
-  await page.evaluate((bs) => {
-    bs.forEach((b, i) => {
+  await page.evaluate(([bs, fig]) => {
+    const tag = document.createElement("div");
+    tag.textContent = fig as string;
+    tag.style.cssText = "position:absolute;right:10px;top:10px;padding:2px 12px;border-radius:8px;background:#0f172a;color:#fff;font:700 15px/26px sans-serif;z-index:10000";
+    document.body.append(tag);
+    (bs as ({ x: number; y: number; width: number; height: number } | null)[]).forEach((b, i) => {
       if (!b) return;
       const y = b.y + window.scrollY;
       const frame = document.createElement("div");
@@ -21,23 +25,23 @@ async function annotate(page: Page, targets: Locator[]) {
       n.style.cssText = `position:absolute;left:${b.x - 10}px;top:${y - 10}px;width:22px;height:22px;border-radius:50%;background:#e11d48;color:#fff;font:700 13px/22px sans-serif;text-align:center;pointer-events:none;z-index:10000`;
       document.body.append(frame, n);
     });
-  }, boxes);
+  }, [boxes, figure] as const);
 }
 
-async function shot(page: Page, name: string, height: number, targets: Locator[]) {
+async function shot(page: Page, name: string, figure: string, height: number, targets: Locator[]) {
   await page.setViewportSize({ width: 412, height });
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(300);
-  await annotate(page, targets);
+  await annotate(page, targets, figure);
   await page.screenshot({ path: `${OUT}/${name}.png` });
 }
 
-test("S1 今日", async ({ page }) => {
+test("今日画面", async ({ page }) => {
   await open(page);
   await page.setViewportSize({ width: 412, height: 2300 });
   await buildProposal(page);
   const card = page.locator("section.card[aria-label]").first();
-  await shot(page, "s1-today", 2300, [
+  await shot(page, "today", "図3", 2300, [
     page.getByRole("group", { name: "鍛える部位" }),
     page.getByRole("radiogroup", { name: "使える時間" }),
     page.getByRole("radiogroup", { name: "今日の疲労" }),
@@ -50,13 +54,13 @@ test("S1 今日", async ({ page }) => {
   ]);
 });
 
-test("S2 運動中", async ({ page }) => {
+test("運動中画面", async ({ page }) => {
   await open(page);
   await page.setViewportSize({ width: 412, height: 1500 });
   await startWorkout(page);
   await completeButton(page).click();
   const body = page.locator(".ex-body").first();
-  await shot(page, "s2-workout", 1500, [
+  await shot(page, "workout", "図5", 1500, [
     page.locator(".session-bar"),
     page.locator(".progress-ring").first(),
     body.getByRole("list", { name: "記録したセット" }),
@@ -70,7 +74,7 @@ test("S2 運動中", async ({ page }) => {
   ]);
 });
 
-test("S3 振り返り", async ({ page }) => {
+test("振り返り画面", async ({ page }) => {
   await open(page);
   await mutateData(
     page,
@@ -78,7 +82,7 @@ test("S3 振り返り", async ({ page }) => {
   );
   await page.setViewportSize({ width: 412, height: 2400 });
   await goTo(page, "振り返り");
-  await shot(page, "s3-history", 2400, [
+  await shot(page, "history", "図6", 2400, [
     page.getByRole("radiogroup", { name: "集計期間" }),
     page.getByTestId("period-range"),
     page.locator(".stat-grid"),
@@ -89,10 +93,10 @@ test("S3 振り返り", async ({ page }) => {
   ]);
 });
 
-test("S4 設定", async ({ page }) => {
+test("設定画面", async ({ page }) => {
   await open(page);
   await page.setViewportSize({ width: 412, height: 3100 });
   await goTo(page, "設定");
   const cards = page.locator(".screen > section.card");
-  await shot(page, "s4-settings", 3100, [0, 1, 2, 3, 4, 5, 6].map((i) => cards.nth(i)));
+  await shot(page, "settings", "図7", 3100, [0, 1, 2, 3, 4, 5, 6].map((i) => cards.nth(i)));
 });
