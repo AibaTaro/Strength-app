@@ -79,6 +79,8 @@ export interface PersonalSettings {
   frequencyPerWeek?: number;
   sessionMinutes?: number;
   avoidMovements?: string[];
+  /** やり方アニメーションを最初から開いておく(既定=閉じる) */
+  showMotionByDefault?: boolean;
   timezone: string;
 }
 

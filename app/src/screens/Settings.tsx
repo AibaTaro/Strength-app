@@ -75,6 +75,16 @@ export function Settings() {
 
   return (
     <div className="screen">
+      <SectionTitle>表示</SectionTitle>
+      <Card>
+        <Toggle
+          label="やり方アニメーションを最初から開く"
+          pressed={ps.showMotionByDefault ?? false}
+          onChange={(v) => updatePersonalSettings({ showMotionByDefault: v })}
+        />
+        <p className="muted">オフの間は、各種目の「やり方を見る」を押したときだけ表示します。</p>
+      </Card>
+
       <SectionTitle>プロフィール</SectionTitle>
       <Card>
         <div className="field-row">

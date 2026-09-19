@@ -12,6 +12,7 @@ import { getDumbbell } from "../domain/equipment";
 import { formatGoalLabel } from "../domain/format";
 import type { Proposal } from "../domain/types";
 import { Card, EmptyState, Icon, Segmented, Sheet } from "../components/ui";
+import { MotionGuide } from "../components/MotionGuide";
 
 interface Props {
   onStartWorkout: () => void;
@@ -248,6 +249,7 @@ export function Today({ onStartWorkout, onOpenSettings }: Props) {
                   )}
                 </div>
                 <p className="reason">{item.reason}</p>
+                <MotionGuide exercise={ex} defaultOpen={data.personalSettings.showMotionByDefault ?? false} />
                 <div className="card-actions">
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSwapIndex(idx)}>
                     <Icon name="swap" size={16} /> 種目を変える

@@ -7,6 +7,7 @@ import { getDumbbell } from "../domain/equipment";
 import { REST_SECONDS_BY_GOAL, evaluateAvailability, groupSetsByExercise } from "../domain/proposalBuilder";
 import { WeightStepPicker } from "../components/WeightStepPicker";
 import { Card, EmptyState, Icon, Segmented, Sheet, Toast, Toggle } from "../components/ui";
+import { MotionGuide } from "../components/MotionGuide";
 import type { CSSProperties } from "react";
 import type { Effort, Exercise, Goal, ProposalItem, SetRecord, Side, WorkoutSession } from "../domain/types";
 
@@ -179,6 +180,7 @@ function ExercisePanel({ exercise, session, goal, proposalItem, open, onToggle, 
 
       {open && (
         <div className="ex-body">
+          <MotionGuide exercise={exercise} defaultOpen={data.personalSettings.showMotionByDefault ?? false} />
           {previous && (
             <p className="muted">
               前回：{previous.weightKg != null ? `${previous.weightKg}kg × ${previous.pieceCount}個 · ` : ""}

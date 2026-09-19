@@ -100,3 +100,26 @@ test("設定画面", async ({ page }) => {
   const cards = page.locator(".screen > section.card");
   await shot(page, "settings", "図7", 3100, [0, 1, 2, 3, 4, 5, 6].map((i) => cards.nth(i)));
 });
+
+test("やり方アニメーション", async ({ page }) => {
+  await open(page);
+  await page.setViewportSize({ width: 412, height: 1500 });
+  await buildProposal(page);
+  const card = page.getByRole("region", { name: "ダンベルベンチプレス" });
+  await card.getByRole("button", { name: /やり方を見る/ }).click();
+  await card.locator("img.motion-img").waitFor();
+  await page.waitForTimeout(500);
+  await card.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollTo(0, document.querySelector('section[aria-label="ダンベルベンチプレス"]')!.getBoundingClientRect().top + window.scrollY - 70));
+  await page.setViewportSize({ width: 412, height: 1100 });
+  await page.waitForTimeout(300);
+  const panel = card.locator(".motion-panel");
+  await annotate(page, [
+    card.getByRole("button", { name: /やり方を隠す/ }),
+    card.locator("img.motion-img"),
+    card.locator(".motion-legend"),
+    card.getByRole("list", { name: "フォームの要点" }),
+    panel.locator("p.muted"),
+  ], "図8");
+  await page.screenshot({ path: `${OUT}/motion.png` });
+});
