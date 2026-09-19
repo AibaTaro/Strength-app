@@ -1093,3 +1093,8 @@ input.stepper-input {
     transition: none !important;
   }
 }
+
+.card-actions-col {
+  flex-direction: column;
+  width: 100%;
+}

@@ -372,7 +372,7 @@ export function Workout({ onEnd, onGoToday }: { onEnd: () => void; onGoToday: ()
             title="運動中のセッションはありません"
             body="今日の候補から始めるか、種目を自分で選んで記録を始められます。"
             action={
-              <div className="card-actions" style={{ width: "100%" }}>
+              <div className="card-actions card-actions-col">
                 <button type="button" className="btn" onClick={onGoToday}>
                   今日の候補を作る
                 </button>
