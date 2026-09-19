@@ -18,10 +18,10 @@ const opt = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : null;
 };
-const FRAMES = 36;
+const FRAMES = 32;
 const DELAY = 66;
-const W = 360;
-const H = 480;
+const W = 420;
+const H = 560;
 
 const server = await createServer({ root, logLevel: "error", server: { port: 5188, strictPort: true } });
 await server.listen();
@@ -58,17 +58,18 @@ if (opt("--sheet")) {
     const frames = [];
     for (let i = 0; i < FRAMES; i++) frames.push((await frame(id, i / FRAMES)).data);
     // 全フレームから共通パレットを作る(ちらつき防止)
-    const sample = new Uint8Array(frames.length * 40 * 40 * 4);
+    const PER = 6000;
+    const sample = new Uint8Array(frames.length * PER * 4);
     frames.forEach((f, fi) => {
-      for (let j = 0; j < 1600; j++) {
-        const src = ((j * 97) % (W * H)) * 4;
-        sample.set(f.subarray(src, src + 4), (fi * 1600 + j) * 4);
+      for (let j = 0; j < PER; j++) {
+        const src = ((j * 37 + fi) % (W * H)) * 4;
+        sample.set(f.subarray(src, src + 4), (fi * PER + j) * 4);
       }
     });
-    const palette = quantize(sample, 96, { format: "rgb444" });
+    const palette = quantize(sample, 256, { format: "rgb565" });
     const gif = GIFEncoder();
     frames.forEach((f, i) => {
-      gif.writeFrame(applyPalette(f, palette, "rgb444"), W, H, { palette: i === 0 ? palette : undefined, delay: DELAY, repeat: 0 });
+      gif.writeFrame(applyPalette(f, palette, "rgb565"), W, H, { palette: i === 0 ? palette : undefined, delay: DELAY, repeat: 0 });
     });
     gif.finish();
     const file = path.join(out, `${id}.gif`);

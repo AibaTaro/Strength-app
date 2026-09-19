@@ -43,7 +43,8 @@ const T = 0.42; // 大腿
 const S = 0.42; // 下腿
 const rad = THREE.MathUtils.degToRad;
 
-const BODY = 0xf4f6f9;
+const BODY = 0xdfe3ea;
+const MUSCLE_NEUTRAL = 0xc9ceda;
 const DARK = 0x2b2d33;
 
 export const MUSCLE_REGIONS = [
@@ -93,58 +94,64 @@ export class Rig {
     return m;
   }
 
+  /** 筋肉の領域。強調されないときは体と同系色で膨らみだけを見せ、強調時は発光色になる */
   private overlay(region: Region, parent: THREE.Object3D, pos: V3, radii: V3) {
     const m = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 20, 14),
-      new THREE.MeshStandardMaterial({ color: 0xff6a1f, roughness: 0.5, emissive: 0xff6a1f, emissiveIntensity: 0.2 })
+      new THREE.SphereGeometry(1, 24, 16),
+      new THREE.MeshStandardMaterial({ color: MUSCLE_NEUTRAL, roughness: 0.6, emissive: 0x000000 })
     );
     m.position.set(...pos);
     m.scale.set(...radii);
-    m.visible = false;
+    m.castShadow = true;
     parent.add(m);
     this.muscles[region].push(m);
     return m;
   }
 
-  private capsule(parent: THREE.Object3D, len: number, r: number) {
-    const g = new THREE.CapsuleGeometry(r, Math.max(0.001, len - 2 * r), 8, 16);
-    g.translate(0, -len / 2, 0);
-    const m = this.mesh(g);
+  /** 筋肉のふくらみを持つ手足。profile=[関節からの位置0..1, 半径] を滑らかに補間して回転体にする */
+  private limbMesh(parent: THREE.Object3D, len: number, profile: [number, number][], flatZ = 0.92) {
+    const curve = new THREE.SplineCurve(profile.map(([t, r]) => new THREE.Vector2(t, r)));
+    const pts = curve.getPoints(18).map((v) => new THREE.Vector2(Math.max(0.004, v.y), -v.x * len));
+    pts.reverse();
+    const m = this.mesh(new THREE.LatheGeometry(pts, 28));
+    m.scale.z = flatZ;
     parent.add(m);
     return m;
   }
 
   private buildBody() {
     const { root, torso, head } = this;
-    // 骨盤
-    this.ellipsoid(root, [0, 0, 0], [0.17, 0.11, 0.11]);
+    // 骨盤・胴体(逆三角形: 胸が広く、腰が細い)
+    this.ellipsoid(root, [0, 0, 0], [0.175, 0.115, 0.115]);
     root.add(torso);
-    // 胴体(腰・胸の2つの楕円体で逆三角形に)
-    this.ellipsoid(torso, [0, 0.13, 0], [0.145, 0.17, 0.09]);
-    this.ellipsoid(torso, [0, 0.4, 0], [0.2, 0.14, 0.105]);
+    this.ellipsoid(torso, [0, 0.06, 0], [0.15, 0.1, 0.095]);
+    this.ellipsoid(torso, [0, 0.2, 0], [0.155, 0.19, 0.095]);
+    this.ellipsoid(torso, [0, 0.41, 0], [0.205, 0.15, 0.115]);
+    this.ellipsoid(torso, [0, 0.53, -0.02], [0.13, 0.06, 0.08]); // 僧帽筋の傾斜
     // 首・頭
-    const neck = this.mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.1, 12));
-    neck.position.set(0, 0.55, 0);
+    const neck = this.mesh(new THREE.CylinderGeometry(0.048, 0.056, 0.11, 16));
+    neck.position.set(0, 0.57, 0);
     torso.add(neck);
-    head.position.set(0, 0.64, 0.01);
+    head.position.set(0, 0.64, 0.012);
     torso.add(head);
-    const skull = this.ellipsoid(head, [0, 0.05, 0], [0.085, 0.1, 0.095]);
-    skull.castShadow = true;
-    const nose = this.mesh(new THREE.ConeGeometry(0.018, 0.04, 10));
+    this.ellipsoid(head, [0, 0.055, 0], [0.086, 0.104, 0.098]);
+    this.ellipsoid(head, [0, -0.035, 0.022], [0.052, 0.05, 0.058]); // あご
+    const nose = this.mesh(new THREE.ConeGeometry(0.017, 0.04, 10));
     nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 0.04, 0.105);
+    nose.position.set(0, 0.03, 0.104);
     head.add(nose);
 
-    // 胴体の筋肉
+    // 胴体の筋肉領域(常に形を見せ、強調時に発光)
     for (const s of [1, -1]) {
-      this.overlay("pec", torso, [0.095 * s, 0.4, 0.088], [0.09, 0.07, 0.035]);
-      this.overlay("upperpec", torso, [0.09 * s, 0.46, 0.078], [0.085, 0.045, 0.035]);
-      this.overlay("lat", torso, [0.115 * s, 0.28, -0.075], [0.075, 0.15, 0.035]);
+      this.overlay("pec", torso, [0.098 * s, 0.41, 0.098], [0.092, 0.072, 0.034]);
+      this.overlay("upperpec", torso, [0.09 * s, 0.47, 0.085], [0.088, 0.045, 0.034]);
+      this.overlay("lat", torso, [0.1 * s, 0.3, -0.075], [0.075, 0.15, 0.036]);
       this.overlay("erector", torso, [0.04 * s, 0.1, -0.085], [0.032, 0.13, 0.03]);
-      this.overlay("glute", root, [0.08 * s, -0.035, -0.092], [0.075, 0.075, 0.05]);
+      this.overlay("glute", root, [0.08 * s, -0.035, -0.092], [0.078, 0.078, 0.052]);
+      // 腹直筋(6分割)
+      for (const y of [0.27, 0.17, 0.07]) this.overlay("core", torso, [0.036 * s, y, 0.09], [0.036, 0.046, 0.022]);
     }
-    this.overlay("core", torso, [0, 0.14, 0.09], [0.09, 0.14, 0.04]);
-    this.overlay("trap", torso, [0, 0.49, -0.085], [0.11, 0.07, 0.03]);
+    this.overlay("trap", torso, [0, 0.5, -0.09], [0.12, 0.07, 0.034]);
 
     // 腕
     for (const side of ["L", "R"] as Side[]) {
@@ -152,23 +159,23 @@ export class Rig {
       const sh = new THREE.Group();
       sh.position.set(0.19 * s, 0.5, 0);
       torso.add(sh);
-      this.ellipsoid(sh, [0, 0, 0], [0.065, 0.065, 0.065]);
-      this.capsule(sh, U, 0.045);
+      this.ellipsoid(sh, [0, 0, 0], [0.068, 0.068, 0.068]);
+      this.limbMesh(sh, U, [[0, 0.05], [0.18, 0.057], [0.4, 0.053], [0.72, 0.045], [1, 0.038]]);
       const el = new THREE.Group();
       el.position.set(0, -U, 0);
       sh.add(el);
-      this.ellipsoid(el, [0, 0, 0], [0.042, 0.042, 0.042]);
-      this.capsule(el, F, 0.036);
+      this.ellipsoid(el, [0, 0, 0], [0.041, 0.041, 0.041]);
+      this.limbMesh(el, F, [[0, 0.041], [0.2, 0.047], [0.55, 0.036], [1, 0.026]]);
       const wr = new THREE.Group();
       wr.position.set(0, -F, 0);
       el.add(wr);
-      this.ellipsoid(wr, [0, -0.04, 0], [0.038, 0.05, 0.03]);
+      this.ellipsoid(wr, [0, -0.04, 0], [0.04, 0.05, 0.034]);
       this.arms[side] = { root: sh, mid: el, end: wr };
-      this.overlay("delt_front", sh, [0.0, -0.035, 0.05], [0.05, 0.065, 0.032]);
-      this.overlay("delt_mid", sh, [0.05 * s, -0.03, 0.0], [0.032, 0.065, 0.05]);
-      this.overlay("delt_rear", sh, [0.0, -0.035, -0.05], [0.05, 0.065, 0.032]);
-      this.overlay("biceps", sh, [0, -0.15, 0.04], [0.04, 0.1, 0.034]);
-      this.overlay("triceps", sh, [0, -0.15, -0.04], [0.04, 0.1, 0.034]);
+      this.overlay("delt_front", sh, [0.0, -0.035, 0.05], [0.05, 0.066, 0.032]);
+      this.overlay("delt_mid", sh, [0.05 * s, -0.03, 0.0], [0.032, 0.066, 0.05]);
+      this.overlay("delt_rear", sh, [0.0, -0.035, -0.05], [0.05, 0.066, 0.032]);
+      this.overlay("biceps", sh, [0, -0.15, 0.04], [0.042, 0.1, 0.036]);
+      this.overlay("triceps", sh, [0, -0.15, -0.042], [0.042, 0.1, 0.036]);
     }
 
     // 脚
@@ -177,21 +184,20 @@ export class Rig {
       const hip = new THREE.Group();
       hip.position.set(0.09 * s, -0.02, 0);
       root.add(hip);
-      this.capsule(hip, T, 0.075);
+      this.limbMesh(hip, T, [[0, 0.088], [0.25, 0.086], [0.55, 0.072], [0.85, 0.06], [1, 0.056]], 0.95);
       const knee = new THREE.Group();
       knee.position.set(0, -T, 0);
       hip.add(knee);
       this.ellipsoid(knee, [0, 0, 0], [0.058, 0.058, 0.058]);
-      this.capsule(knee, S, 0.055);
+      this.limbMesh(knee, S, [[0, 0.056], [0.22, 0.063], [0.38, 0.059], [0.7, 0.042], [1, 0.033]], 0.95);
       const ankle = new THREE.Group();
       ankle.position.set(0, -S, 0);
       knee.add(ankle);
-      const foot = this.mesh(new THREE.BoxGeometry(0.09, 0.07, 0.25));
-      foot.position.set(0, -0.045, 0.07);
-      ankle.add(foot);
+      this.ellipsoid(ankle, [0, -0.055, 0.055], [0.05, 0.048, 0.135]); // 足
+      this.ellipsoid(ankle, [0, -0.03, -0.02], [0.04, 0.05, 0.05]); // かかと
       this.legs[side] = { root: hip, mid: knee, end: ankle };
-      this.overlay("quad", hip, [0, -0.22, 0.056], [0.062, 0.17, 0.04]);
-      this.overlay("hamstring", hip, [0, -0.22, -0.056], [0.062, 0.17, 0.04]);
+      this.overlay("quad", hip, [0, -0.22, 0.058], [0.064, 0.17, 0.04]);
+      this.overlay("hamstring", hip, [0, -0.22, -0.058], [0.064, 0.17, 0.04]);
     }
   }
 
@@ -399,18 +405,23 @@ export class Rig {
     if (p.pushBars) this.pushBars.position.set(...p.pushBars[0]);
   }
 
-  /** 強調する筋肉領域を設定。primary=濃いオレンジ、secondary=黄。level=0..1で明るさ変化 */
+  /** 強調する筋肉領域を設定。primary=濃いオレンジ、secondary=黄。level=0..1で発光の強さが変化 */
   highlight(primary: Region[], secondary: Region[], level: number) {
     for (const r of MUSCLE_REGIONS) {
       const isP = primary.includes(r);
       const isS = !isP && secondary.includes(r);
       for (const m of this.muscles[r]) {
-        m.visible = isP || isS;
         const mat = m.material as THREE.MeshStandardMaterial;
-        const col = isP ? 0xff5a14 : 0xffb238;
+        if (!isP && !isS) {
+          mat.color.setHex(MUSCLE_NEUTRAL);
+          mat.emissive.setHex(0x000000);
+          mat.emissiveIntensity = 0;
+          continue;
+        }
+        const col = isP ? 0xff4d12 : 0xffb238;
         mat.color.setHex(col);
         mat.emissive.setHex(col);
-        mat.emissiveIntensity = 0.12 + 0.4 * level;
+        mat.emissiveIntensity = 0.25 + 0.6 * level;
       }
     }
   }

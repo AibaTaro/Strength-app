@@ -30,8 +30,8 @@ export function MotionGuide({ exercise, defaultOpen = false }: { exercise: Exerc
               className="motion-img"
               src={motionSrcFor(exercise.id)}
               alt={`${exercise.name}の動作(3Dモデル)`}
-              width={360}
-              height={480}
+              width={420}
+              height={560}
               onError={() => setFailed(true)}
             />
           )}

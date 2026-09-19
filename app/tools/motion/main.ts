@@ -4,8 +4,8 @@ import { Rig, type Region } from "./rig";
 import { MOTIONS } from "./motions";
 import { INITIAL_EXERCISES } from "../../src/domain/exercises";
 
-const W = 360;
-const H = 480;
+const W = 420;
+const H = 560;
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(1);
@@ -15,29 +15,35 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const rig = new Rig();
 const scene = rig.scene;
-scene.background = new THREE.Color(0xf3f4f8);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xdfe3ee, 1.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-sun.position.set(2.2, 4, 3);
-sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
-sun.shadow.camera.left = -2;
-sun.shadow.camera.right = 2;
-sun.shadow.camera.top = 2;
-sun.shadow.camera.bottom = -2;
-sun.shadow.radius = 4;
-scene.add(sun);
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.ShadowMaterial({ opacity: 0.22 }));
+scene.background = new THREE.Color(0x0d111d);
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a2033, 0.95));
+const key = new THREE.DirectionalLight(0xfff1e0, 1.7);
+key.position.set(2.2, 4, 3);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -2;
+key.shadow.camera.right = 2;
+key.shadow.camera.top = 2;
+key.shadow.camera.bottom = -2;
+key.shadow.radius = 5;
+key.shadow.bias = -0.0004;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x6ea8ff, 1.6); // 輪郭を浮かせる寒色のリムライト
+rim.position.set(-3, 2.5, -3);
+scene.add(rim);
+const fill = new THREE.DirectionalLight(0x8899ff, 0.45);
+fill.position.set(-2, 1, 3);
+scene.add(fill);
+
+// 床: 単色の円形ステージ(グラデーションはGIFの256色で縞になるため使わない)
+const stage = new THREE.Mesh(new THREE.CircleGeometry(1.3, 64), new THREE.MeshBasicMaterial({ color: 0x171d31 }));
+stage.rotation.x = -Math.PI / 2;
+stage.position.y = -0.003;
+scene.add(stage);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.ShadowMaterial({ opacity: 0.5 }));
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
-const ring = new THREE.Mesh(
-  new THREE.CircleGeometry(0.95, 48),
-  new THREE.MeshBasicMaterial({ color: 0xe6e9f1 })
-);
-ring.rotation.x = -Math.PI / 2;
-ring.position.y = -0.002;
-scene.add(ring);
 
 const camera = new THREE.PerspectiveCamera(28, W / H, 0.1, 50);
 
@@ -79,7 +85,8 @@ window.__renderFrame = (id, phase) => {
   rig.applyPose(m.pose(k));
   rig.highlight(regions([ex.primaryMuscle]), regions(ex.secondaryMuscles), m.effort ? m.effort(k) : k);
   const c = m.cam;
-  const az = (c.az * Math.PI) / 180;
+  // 立体感を出すため、視点をゆるく左右に振る
+  const az = ((c.az + 9 * Math.sin(2 * Math.PI * phase)) * Math.PI) / 180;
   const el = ((c.el ?? 8) * Math.PI) / 180;
   const d = c.dist ?? 5.0;
   const t = new THREE.Vector3(...(c.target ?? [0, 0.98, 0]));
