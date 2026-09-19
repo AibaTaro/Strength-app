@@ -145,3 +145,9 @@ test.describe("やり方アニメーション: 素材の品質", () => {
     for (const [id, n] of Object.entries(counts)) expect(n, `${id} のオレンジ画素数`).toBeGreaterThan(40);
   });
 });
+
+test("素材(BodyParts3D, CC BY-SA)のクレジットが設定画面に表示される", async ({ page }) => {
+  await goTo(page, "設定");
+  await expect(page.getByText("BodyParts3D")).toBeVisible();
+  await expect(page.getByText("CC Attribution-Share Alike 2.1 Japan")).toBeVisible();
+});

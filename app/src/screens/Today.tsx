@@ -13,6 +13,8 @@ import { formatGoalLabel } from "../domain/format";
 import type { Proposal } from "../domain/types";
 import { Card, EmptyState, Icon, Segmented, Sheet } from "../components/ui";
 import { MotionGuide } from "../components/MotionGuide";
+import { BodyMap } from "../components/BodyMap";
+import { muscleNamesOf } from "../domain/bodyMap";
 
 interface Props {
   onStartWorkout: () => void;
@@ -21,8 +23,7 @@ interface Props {
 
 export function Today({ onStartWorkout, onOpenSettings }: Props) {
   const { data, addProposal, startSession } = useAppData();
-  const muscles = useMemo(() => [...new Set(data.exercises.map((e) => e.primaryMuscle))], [data.exercises]);
-  const [selectedMuscles, setSelectedMuscles] = useState<string[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [minutes, setMinutes] = useState(data.personalSettings.sessionMinutes ?? 30);
   const [fatigue, setFatigue] = useState<"low" | "mid" | "high">("low");
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -54,16 +55,12 @@ export function Today({ onStartWorkout, onOpenSettings }: Props) {
     if (proposal) resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [proposal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function toggleMuscle(m: string) {
-    setSelectedMuscles((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
-  }
-
   function handleBuild() {
     setErrorMessage(null);
     try {
       const { proposal: p, excluded } = buildProposal({
         data,
-        selectedMuscles,
+        selectedMuscles: muscleNamesOf(selectedGroups),
         availableMinutes: minutes,
         now: new Date(),
       });
@@ -149,21 +146,9 @@ export function Today({ onStartWorkout, onOpenSettings }: Props) {
       )}
 
       <Card>
-        <div className="field" role="group" aria-label="鍛える部位">
-          <span className="field-label">鍛える部位（未選択ならおまかせ）</span>
-          <div className="chips">
-            {muscles.map((m) => (
-              <button
-                key={m}
-                type="button"
-                className="chip"
-                aria-pressed={selectedMuscles.includes(m)}
-                onClick={() => toggleMuscle(m)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+        <div className="field">
+          <span className="field-label">鍛える部位（人体図をタップ）</span>
+          <BodyMap value={selectedGroups} onChange={setSelectedGroups} />
         </div>
         <div className="field">
           <span className="field-label">使える時間</span>

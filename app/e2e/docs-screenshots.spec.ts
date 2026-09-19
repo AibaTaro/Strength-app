@@ -38,11 +38,15 @@ async function shot(page: Page, name: string, figure: string, height: number, ta
 
 test("今日画面", async ({ page }) => {
   await open(page);
-  await page.setViewportSize({ width: 412, height: 2300 });
+  await page.setViewportSize({ width: 412, height: 3400 });
+  await page.waitForTimeout(800);
+  const stage = page.getByTestId("bodymap-stage").boundingBox();
+  const sb = (await stage)!;
+  await page.mouse.click(sb.x + sb.width * 0.42, sb.y + sb.height * 0.33); // 胸を選んだ状態にする
   await buildProposal(page);
   const card = page.locator("section.card[aria-label]").first();
-  await shot(page, "today", "図3", 2300, [
-    page.getByRole("group", { name: "鍛える部位" }),
+  await shot(page, "today", "図3", 3400, [
+    page.locator(".bodymap"),
     page.getByRole("radiogroup", { name: "使える時間" }),
     page.getByRole("radiogroup", { name: "今日の疲労" }),
     page.getByRole("button", { name: "今日の候補を作る" }),

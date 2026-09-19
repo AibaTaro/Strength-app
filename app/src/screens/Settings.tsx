@@ -298,6 +298,14 @@ export function Settings() {
         )}
       </Card>
 
+      <SectionTitle>クレジット</SectionTitle>
+      <Card>
+        <p className="muted">
+          人体モデル(やり方アニメーション・人体図)は BodyParts3D, © The Database Center for Life Science, licensed under CC Attribution-Share Alike 2.1 Japan
+          を元に加工したものです。
+        </p>
+      </Card>
+
       <Sheet title="バックアップを復元" open={pending !== null} onClose={() => setPending(null)}>
         <p className="lead">
           「{pending?.name}」を読み込みます。<strong>現在のデータはすべて置き換えられます。</strong>

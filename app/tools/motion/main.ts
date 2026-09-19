@@ -1,7 +1,7 @@
 // 動作GIF生成用の描画ページ。tools/build-motions.mjs から呼ばれる。
 import * as THREE from "three";
 import { Rig, type Region } from "./rig";
-import { MOTIONS } from "./motions";
+import { buildMotions } from "./motions";
 import { INITIAL_EXERCISES } from "../../src/domain/exercises";
 
 const W = 420;
@@ -13,7 +13,8 @@ renderer.setSize(W, H, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const rig = new Rig();
+const rig = await Rig.load("/tools/bodyparts/cache/body.json", "/tools/bodyparts/cache/body.bin");
+const MOTIONS = buildMotions(rig.dims);
 const scene = rig.scene;
 scene.background = new THREE.Color(0x0d111d);
 scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a2033, 0.95));
@@ -74,10 +75,13 @@ declare global {
     __ids: string[];
     __missing: string[];
     __renderFrame: (id: string, phase: number) => void;
+    __only: (re: string | null) => void;
+    __renderMap: (view: "front" | "back", regions: string[]) => void;
   }
 }
 window.__ids = ids;
 window.__missing = missing;
+window.__only = (re) => rig.only(re ? new RegExp(re, "i") : null);
 window.__renderFrame = (id, phase) => {
   const m = MOTIONS[id];
   const ex = INITIAL_EXERCISES.find((e) => e.id === id)!;
@@ -85,12 +89,26 @@ window.__renderFrame = (id, phase) => {
   rig.applyPose(m.pose(k));
   rig.highlight(regions([ex.primaryMuscle]), regions(ex.secondaryMuscles), m.effort ? m.effort(k) : k);
   const c = m.cam;
-  // 立体感を出すため、視点をゆるく左右に振る
-  const az = ((c.az + 9 * Math.sin(2 * Math.PI * phase)) * Math.PI) / 180;
+  const az = (c.az * Math.PI) / 180;
   const el = ((c.el ?? 8) * Math.PI) / 180;
   const d = c.dist ?? 5.0;
   const t = new THREE.Vector3(...(c.target ?? [0, 0.98, 0]));
   camera.position.set(t.x + d * Math.sin(az) * Math.cos(el), t.y + d * Math.sin(el), t.z + d * Math.cos(az) * Math.cos(el));
   camera.lookAt(t);
+  renderer.render(scene, camera);
+};
+
+// 人体図(部位選択用)の描画: 解剖学ポーズで正面/背面から。選んだ領域だけ発光させる。
+window.__renderMap = (view, regions) => {
+  const MW = 420;
+  const MH = 780;
+  renderer.setSize(MW, MH, false);
+  camera.aspect = MW / MH;
+  camera.updateProjectionMatrix();
+  rig.applyPose({ armL: { fk: { abd: 20 } }, armR: { fk: { abd: 20 } }, footYaw: 10 });
+  rig.highlight(regions as Region[], [], 0.6);
+  const z = view === "front" ? 1 : -1;
+  camera.position.set(0, 0.93, 4.5 * z);
+  camera.lookAt(0, 0.93, 0);
   renderer.render(scene, camera);
 };

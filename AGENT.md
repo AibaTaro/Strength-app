@@ -9,7 +9,9 @@ npm run dev      # 開発サーバー起動
 npm run build    # 型チェック(tsc -b) + 本番ビルド
 npm run lint     # ESLint
 npm run test     # vitest(ユニットテスト・受入基準の一部を自動検証)
+npm run bodyparts:fetch && npm run bodyparts:build  # 人体モデル(BodyParts3D)を取得・変換(初回のみ。約500MB、git管理外)
 npm run motions  # 種目のやり方GIFを再生成(public/motions/)。動作の定義は tools/motion/motions.ts
+npm run bodymap  # 部位選択の人体図を再生成(public/bodymap/)。部位の定義は src/domain/bodyGroups.json
 npm run test:e2e # Playwright E2E(スマホ幅Chromium。初回のみ `npx playwright install chromium`)
 ```
 
@@ -25,6 +27,7 @@ npm run test:e2e # Playwright E2E(スマホ幅Chromium。初回のみ `npx playw
 - E2Eのセレクタは役割名・ラベル(アクセシビリティ)基準。ボタン名やaria-labelを変えるときはe2e/も更新する。
 - 種目を追加したら `tools/motion/motions.ts` に動作を追加し `npm run motions` でGIFを生成する(全種目分のGIFがないと`npm run test`が失敗する)。
 - やり方アニメーションは参考用。専門家が確認するまで「確認済み」「正しいフォーム」と表示しない(教材の状態は「未確認」のまま)。
+- 人体モデルの素材はCC BY-SA。表示(設定画面のクレジット)と[NOTICE.md](./NOTICE.md)を維持する。素材そのもの(STL等)はリポジトリに入れない。
 - 認証・サーバー保存・複数端末同期は実装しない(今回の対象外)。
 - 個人設定・種目データ・提案ロジックはモジュールとして分離した状態を維持する(将来の同期対応に備えるが、同期基盤自体は作らない)。
 

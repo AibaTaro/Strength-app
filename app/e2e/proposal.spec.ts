@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { buildProposal, card, goTo, mutateData, open, seedTwoSessions } from "./helpers";
+import { buildProposal, card, goTo, mutateData, open, seedTwoSessions, selectGroup } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await open(page);
@@ -27,13 +27,13 @@ test.describe("今日の候補", () => {
     await goTo(page, "設定");
     await page.getByRole("button", { name: "角度調整の仕様を確認済み" }).click();
     await goTo(page, "今日");
-    await page.getByRole("button", { name: "大胸筋上部", exact: true }).click();
+    await selectGroup(page, "胸");
     await buildProposal(page);
     await expect(card(page, "ダンベルインクラインベンチプレス")).toBeVisible();
   });
 
   test("部位を選ぶと、その部位の種目が先頭に来る", async ({ page }) => {
-    await page.getByRole("button", { name: "上腕二頭筋", exact: true }).click();
+    await selectGroup(page, "上腕二頭筋");
     await buildProposal(page);
     await expect(page.locator("section.card[aria-label]").first()).toContainText("上腕二頭筋");
   });
@@ -91,7 +91,7 @@ test.describe("重量の増量ロジック(16段階)", () => {
   test("複合種目: 直近2回が上限回数・余力ありなら 9kg → 12kg（11kgは出さない）", async ({ page }) => {
     await setGoalHypertrophy(page);
     await mutateData(page, seedTwoSessions("dumbbell-bench-press", 9, 2, 12));
-    await page.getByRole("button", { name: "大胸筋", exact: true }).click();
+    await selectGroup(page, "胸");
     await buildProposal(page);
     const bench = card(page, "ダンベルベンチプレス");
     await expect(bench).toContainText("12kg × 2個");
@@ -102,7 +102,7 @@ test.describe("重量の増量ロジック(16段階)", () => {
   test("アイソレーション種目: 18→21kgは刻み+3kgが上限2kgを超えるため据え置き", async ({ page }) => {
     await setGoalHypertrophy(page);
     await mutateData(page, seedTwoSessions("dumbbell-curl", 18, 2, 15));
-    await page.getByRole("button", { name: "上腕二頭筋", exact: true }).click();
+    await selectGroup(page, "上腕二頭筋");
     await buildProposal(page);
     const curl = card(page, "ダンベルカール");
     await expect(curl).toContainText("18kg × 2個");
@@ -112,7 +112,7 @@ test.describe("重量の増量ロジック(16段階)", () => {
   test("最大重量36kgに達していても増量を強制しない", async ({ page }) => {
     await setGoalHypertrophy(page);
     await mutateData(page, seedTwoSessions("dumbbell-bench-press", 36, 2, 12));
-    await page.getByRole("button", { name: "大胸筋", exact: true }).click();
+    await selectGroup(page, "胸");
     await buildProposal(page);
     const bench = card(page, "ダンベルベンチプレス");
     await expect(bench).toContainText("36kg × 2個");

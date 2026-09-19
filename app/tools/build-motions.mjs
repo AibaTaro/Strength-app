@@ -39,7 +39,36 @@ async function frame(id, phase) {
   return PNG.sync.read(await page.locator("#c").screenshot());
 }
 
-if (opt("--sheet")) {
+if (opt("--only-parts")) {
+  // デバッグ: 部品名の正規表現に合うものだけ描く
+  await page.evaluate((re) => window.__only(re), opt("--only-parts"));
+}
+if (args.includes("--bodymap")) {
+  // 部位選択用の人体図: public/bodymap/{front,back}.png と、部位ごとの発光レイヤー {view}-{group}.png
+  const GROUPS = JSON.parse(fs.readFileSync(path.join(root, "src/domain/bodyGroups.json"), "utf8"));
+  const out = path.join(root, "public/bodymap");
+  fs.mkdirSync(out, { recursive: true });
+  await page.setViewportSize({ width: 420, height: 780 });
+  const shot = async (view, regions) => {
+    await page.evaluate(([v, r]) => window.__renderMap(v, r), [view, regions]);
+    return PNG.sync.read(await page.locator("#c").screenshot());
+  };
+  for (const view of ["front", "back"]) {
+    const base = await shot(view, []);
+    fs.writeFileSync(path.join(out, `${view}.png`), PNG.sync.write(base));
+    for (const g of GROUPS.filter((x) => x.views.includes(view))) {
+      const lit = await shot(view, g.regions);
+      const layer = new PNG({ width: base.width, height: base.height });
+      let n = 0;
+      for (let i = 0; i < lit.data.length; i += 4) {
+        const diff = Math.abs(lit.data[i] - base.data[i]) + Math.abs(lit.data[i + 1] - base.data[i + 1]) + Math.abs(lit.data[i + 2] - base.data[i + 2]);
+        if (diff > 40) { layer.data[i] = lit.data[i]; layer.data[i + 1] = lit.data[i + 1]; layer.data[i + 2] = lit.data[i + 2]; layer.data[i + 3] = 255; n++; }
+      }
+      fs.writeFileSync(path.join(out, `${view}-${g.id}.png`), PNG.sync.write(layer));
+      console.log(view, g.id, n, "px");
+    }
+  }
+} else if (opt("--sheet")) {
   const ids = opt("--sheet") === "all" ? allIds : opt("--sheet").split(",");
   const phases = [0, 0.5];
   const cols = 4;

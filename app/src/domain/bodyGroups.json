@@ -1,0 +1,11 @@
+[
+  { "id": "chest", "label": "胸", "views": ["front"], "regions": ["pec", "upperpec"], "names": ["大胸筋", "大胸筋上部"] },
+  { "id": "shoulder", "label": "肩", "views": ["front", "back"], "regions": ["delt_front", "delt_mid", "delt_rear"], "names": ["三角筋", "三角筋前部", "三角筋中部", "三角筋後部"] },
+  { "id": "biceps", "label": "上腕二頭筋", "views": ["front"], "regions": ["biceps"], "names": ["上腕二頭筋"] },
+  { "id": "core", "label": "腹筋", "views": ["front"], "regions": ["core"], "names": ["体幹"] },
+  { "id": "quad", "label": "太もも前", "views": ["front"], "regions": ["quad"], "names": ["大腿四頭筋"] },
+  { "id": "back", "label": "背中", "views": ["back"], "regions": ["lat", "trap", "erector"], "names": ["広背筋", "僧帽筋", "脊柱起立筋"] },
+  { "id": "triceps", "label": "上腕三頭筋", "views": ["back"], "regions": ["triceps"], "names": ["上腕三頭筋"] },
+  { "id": "glute", "label": "お尻", "views": ["back"], "regions": ["glute"], "names": ["臀筋"] },
+  { "id": "hamstring", "label": "太もも裏", "views": ["back"], "regions": ["hamstring"], "names": ["ハムストリングス"] }
+]

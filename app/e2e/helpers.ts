@@ -64,3 +64,8 @@ export async function completeSet(page: Page) {
   await completeButton(page).click();
   await page.waitForTimeout(400);
 }
+
+/** 部位を選ぶ(画面読み上げ用の部位ボタン経由。人体図のタップは bodymap.spec.ts で検証) */
+export async function selectGroup(page: Page, label: string) {
+  await page.getByRole("group", { name: "鍛える部位" }).getByRole("button", { name: label, exact: true }).dispatchEvent("click");
+}
