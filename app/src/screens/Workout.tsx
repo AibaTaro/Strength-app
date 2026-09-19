@@ -1,12 +1,14 @@
-import { newId } from "../domain/id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppData } from "../state/AppContext";
+import { newId } from "../domain/id";
 import { activeIntervalsOfSession } from "../domain/aggregation";
-import { formatDurationMs, formatEffortLabel, formatSideLabel, formatWeightLabel } from "../domain/format";
+import { formatClock, formatEffortLabel, formatSideLabel } from "../domain/format";
 import { getDumbbell } from "../domain/equipment";
-import { REST_SECONDS_BY_GOAL } from "../domain/proposalBuilder";
+import { REST_SECONDS_BY_GOAL, evaluateAvailability, groupSetsByExercise } from "../domain/proposalBuilder";
 import { WeightStepPicker } from "../components/WeightStepPicker";
-import type { Effort, Exercise, Goal, ProposalItem, Side, SetRecord } from "../domain/types";
+import { Card, EmptyState, Icon, Segmented, Sheet, Toast, Toggle } from "../components/ui";
+import type { CSSProperties } from "react";
+import type { Effort, Exercise, Goal, ProposalItem, SetRecord, Side, WorkoutSession } from "../domain/types";
 
 function useNowTick(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -17,7 +19,7 @@ function useNowTick(intervalMs: number): number {
   return now;
 }
 
-interface SetFormState {
+interface FormState {
   weightKg: number;
   pieceCount: 1 | 2;
   side: Side;
@@ -27,122 +29,110 @@ interface SetFormState {
   isWarmup: boolean;
 }
 
-function defaultFormFor(exercise: Exercise, dumbbellSteps: readonly number[], prefillWeight?: number, prefillReps?: number): SetFormState {
+function initialForm(
+  exercise: Exercise,
+  steps: readonly number[],
+  weight?: number | null,
+  reps?: number
+): FormState {
   const pieceCount = exercise.defaultPieceCount;
-  const side: Side = exercise.unilateral ? "left" : pieceCount === 2 ? "both" : "na";
   return {
-    weightKg: exercise.loadType === "dumbbellPerHand" ? prefillWeight ?? dumbbellSteps[0] ?? 3 : 0,
+    weightKg: exercise.loadType === "dumbbellPerHand" ? (weight ?? steps[0] ?? 3) : 0,
     pieceCount,
-    side,
-    reps: prefillReps ?? 8,
+    side: exercise.unilateral ? "left" : pieceCount === 2 ? "both" : "na",
+    reps: reps ?? 10,
     effort: "unknown",
     pain: false,
     isWarmup: false,
   };
 }
 
-function ExercisePanel({
-  exercise,
-  sessionId,
-  goal,
-  proposalItem,
-}: {
+interface PanelProps {
   exercise: Exercise;
-  sessionId: string;
+  session: WorkoutSession;
   goal: Goal;
   proposalItem?: ProposalItem;
-  }) {
+  open: boolean;
+  onToggle: () => void;
+  onSetAdded: (restSeconds: number | null, finishedExercise: boolean) => void;
+  onSetDeleted: (id: string) => void;
+}
+
+function ExercisePanel({ exercise, session, goal, proposalItem, open, onToggle, onSetAdded, onSetDeleted }: PanelProps) {
   const { data, addSetRecord, updateSetRecord, deleteSetRecord } = useAppData();
-  const dumbbell = getDumbbell(data.equipment);
-  const steps = dumbbell?.weightStepsKg ?? [];
+  const steps = getDumbbell(data.equipment)?.weightStepsKg ?? [];
 
-  const priorHistory = useMemo(
-    () =>
-      data.setRecords
-        .filter((s) => s.exerciseId === exercise.id && !s.deletedAt && s.sessionId !== sessionId)
-        .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()),
-    [data.setRecords, exercise.id, sessionId]
+  const previous = useMemo(
+    () => groupSetsByExercise(data.setRecords.filter((s) => s.sessionId !== session.id)).get(exercise.id)?.[0],
+    [data.setRecords, session.id, exercise.id]
   );
-
-  const setsInSession = useMemo(
+  const setsHere = useMemo(
     () =>
       data.setRecords
-        .filter((s) => s.exerciseId === exercise.id && s.sessionId === sessionId && !s.deletedAt)
+        .filter((s) => s.exerciseId === exercise.id && s.sessionId === session.id && !s.deletedAt)
         .sort((a, b) => a.order - b.order),
-    [data.setRecords, exercise.id, sessionId]
+    [data.setRecords, exercise.id, session.id]
   );
+  const workingCount = setsHere.filter((s) => !s.isWarmup).length;
+  const targetSets = proposalItem?.sets;
 
-  const [form, setForm] = useState<SetFormState>(() =>
-    defaultFormFor(
-      exercise,
-      steps,
-      priorHistory[0]?.weightKg ?? proposalItem?.weightKg,
-      priorHistory[0]?.reps ?? proposalItem?.reps
-    )
+  const [form, setForm] = useState<FormState>(() =>
+    initialForm(exercise, steps, proposalItem?.weightKg ?? previous?.weightKg, proposalItem?.reps ?? previous?.reps)
   );
-  const [submitting, setSubmitting] = useState(false);
-  const submittingRef = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [restUntil, setRestUntil] = useState<number | null>(null);
-  const now = useNowTick(1000);
+  const busy = useRef(false);
 
-  const restRemainingSec = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
+  const done = targetSets != null && workingCount >= targetSets;
+  const isDumbbell = exercise.loadType === "dumbbellPerHand";
 
-  function resetForm() {
-    setForm(
-      defaultFormFor(
-        exercise,
-        steps,
-        priorHistory[0]?.weightKg ?? proposalItem?.weightKg,
-        priorHistory[0]?.reps ?? proposalItem?.reps
-      )
-    );
-    setEditingId(null);
+  function patch(p: Partial<FormState>) {
+    setForm((f) => ({ ...f, ...p }));
   }
 
-  function handleConfirm() {
-    // refで同期的にガードする(二重タップ対策)。state更新は再描画まで反映されないため
-    // stateだけのガードでは連続クリックを取りこぼす。
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        updateSetRecord(editingId, {
-          weightKg: exercise.loadType === "dumbbellPerHand" ? form.weightKg : null,
-          pieceCount: form.pieceCount,
-          side: form.side,
-          reps: form.reps,
-          effort: form.effort,
-          pain: form.pain,
-          isWarmup: form.isWarmup,
-        });
-      } else {
-        const record: SetRecord = {
-          id: newId(),
-          sessionId,
-          exerciseId: exercise.id,
-          order: setsInSession.length,
-          side: form.side,
-          weightKg: exercise.loadType === "dumbbellPerHand" ? form.weightKg : null,
-          pieceCount: form.pieceCount,
-          reps: form.reps,
-          effort: form.effort,
-          pain: form.pain,
-          isWarmup: form.isWarmup,
-          completedAt: new Date().toISOString(),
-          updatedVersion: 1,
-        };
-        addSetRecord(record);
-        if (!form.isWarmup) {
-          setRestUntil(Date.now() + REST_SECONDS_BY_GOAL[goal] * 1000);
-        }
-      }
-      resetForm();
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
+  function confirm() {
+    const weightKg = isDumbbell ? form.weightKg : null;
+    if (editingId) {
+      updateSetRecord(editingId, {
+        weightKg,
+        pieceCount: form.pieceCount,
+        side: form.side,
+        reps: form.reps,
+        effort: form.effort,
+        pain: form.pain,
+        isWarmup: form.isWarmup,
+      });
+      setEditingId(null);
+      patch({ pain: false, isWarmup: false, effort: "unknown" });
+      return;
     }
+    // 二重タップ対策(新規追加のみ): stateは再描画まで反映されないためrefで同期的にガードする。
+    // 編集は同じ内容の再適用になるだけなのでガード不要。
+    if (busy.current) return;
+    busy.current = true;
+    setTimeout(() => (busy.current = false), 350);
+    addSetRecord({
+      id: newId(),
+      sessionId: session.id,
+      exerciseId: exercise.id,
+      order: setsHere.length,
+      side: form.side,
+      weightKg,
+      pieceCount: form.pieceCount,
+      reps: form.reps,
+      effort: form.effort,
+      pain: form.pain,
+      isWarmup: form.isWarmup,
+      completedAt: new Date().toISOString(),
+      updatedVersion: 1,
+    });
+    const finished = !form.isWarmup && targetSets != null && workingCount + 1 >= targetSets;
+    onSetAdded(form.isWarmup ? null : REST_SECONDS_BY_GOAL[goal], finished);
+    patch({
+      pain: false,
+      isWarmup: false,
+      effort: "unknown",
+      side: exercise.unilateral ? (form.side === "left" ? "right" : "left") : form.side,
+    });
   }
 
   function startEdit(s: SetRecord) {
@@ -158,228 +148,410 @@ function ExercisePanel({
     });
   }
 
+  const ringPct = targetSets ? Math.min(100, Math.round((workingCount / targetSets) * 100)) : 0;
+
   return (
-    <div className="exercise-panel">
-      <h4>{exercise.name}</h4>
-      {setsInSession.length > 0 && (
-        <ul className="set-history">
-          {setsInSession.map((s) => (
-            <li key={s.id}>
-              {formatWeightLabel(s.weightKg, s.pieceCount)} × {s.reps}回 [{formatSideLabel(s.side)}]
-              {s.isWarmup && <span className="badge">準備</span>}
-              {s.pain && <span className="badge badge-pain">痛み</span>}
-              <button type="button" onClick={() => startEdit(s)}>
-                編集
-              </button>
-              <button type="button" onClick={() => deleteSetRecord(s.id)}>
-                削除
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <section className="card ex-card" aria-label={exercise.name}>
+      <button type="button" className="ex-head" aria-expanded={open} onClick={onToggle}>
+        <div className="ex-head-main">
+          <h3>{exercise.name}</h3>
+          <p className="muted">
+            {proposalItem
+              ? `目標 ${proposalItem.weightKg != null ? `${proposalItem.weightKg}kg × ${proposalItem.pieceCount ?? exercise.defaultPieceCount}個 · ` : ""}${proposalItem.reps}回 × ${proposalItem.sets}セット`
+              : exercise.primaryMuscle}
+          </p>
+        </div>
+        {targetSets ? (
+          <div
+            className={`progress-ring${done ? " progress-done" : ""}`}
+            style={{ "--p": `${ringPct}%` } as CSSProperties}
+            aria-label={`${workingCount} / ${targetSets} セット完了`}
+          >
+            <span>{done ? <Icon name="check" size={18} /> : `${workingCount}/${targetSets}`}</span>
+          </div>
+        ) : (
+          <span className="badge">{workingCount}セット</span>
+        )}
+        <span className={`chev${open ? " chev-open" : ""}`}>
+          <Icon name="chevron" size={20} />
+        </span>
+      </button>
 
-      {restUntil && restRemainingSec > 0 && (
-        <p className="rest-timer">
-          休憩中: 残り{restRemainingSec}秒
-          <button type="button" onClick={() => setRestUntil(null)}>
-            休憩終了
-          </button>
-        </p>
-      )}
+      {open && (
+        <div className="ex-body">
+          {previous && (
+            <p className="muted">
+              前回：{previous.weightKg != null ? `${previous.weightKg}kg × ${previous.pieceCount}個 · ` : ""}
+              {previous.reps}回
+            </p>
+          )}
 
-      <div className="set-form">
-        {exercise.loadType === "dumbbellPerHand" && (
-          <div>
-            <label>重量(1個あたり)</label>
-            <WeightStepPicker
-              steps={steps}
-              valueKg={form.weightKg}
-              onChange={(weightKg) => setForm((f) => ({ ...f, weightKg }))}
+          {setsHere.length > 0 && (
+            <ul className="set-list" aria-label="記録したセット">
+              {setsHere.map((s, i) => (
+                <li key={s.id} className={`set-row${editingId === s.id ? " set-row-editing" : ""}`}>
+                  <span className="set-num">{i + 1}</span>
+                  <span className="set-text" data-testid="set-text">
+                    {s.weightKg != null ? `${s.weightKg}kg × ${s.pieceCount}個 · ` : ""}
+                    {s.reps}回 <small>{formatSideLabel(s.side) !== "-" ? formatSideLabel(s.side) : ""}</small>
+                    {s.isWarmup && <span className="badge"> 準備</span>}
+                    {s.pain && <span className="badge badge-danger"> 痛み</span>}
+                  </span>
+                  <button type="button" className="icon-btn" aria-label={`セット${i + 1}を編集`} onClick={() => startEdit(s)}>
+                    <Icon name="edit" size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn icon-btn-danger"
+                    aria-label={`セット${i + 1}を削除`}
+                    onClick={() => {
+                      deleteSetRecord(s.id);
+                      if (editingId === s.id) setEditingId(null);
+                      onSetDeleted(s.id);
+                    }}
+                  >
+                    <Icon name="trash" size={18} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {isDumbbell && (
+            <div className="field" role="group" aria-label="重量">
+              <span className="field-label">重量（ダンベル1個あたり）</span>
+              <WeightStepPicker steps={steps} valueKg={form.weightKg} onChange={(weightKg) => patch({ weightKg })} />
+            </div>
+          )}
+
+          {isDumbbell && !exercise.unilateral && (
+            <div className="field">
+              <span className="field-label">使用個数</span>
+              <Segmented
+                label="使用個数"
+                value={form.pieceCount}
+                onChange={(pieceCount) => patch({ pieceCount, side: pieceCount === 2 ? "both" : "na" })}
+                options={[
+                  { value: 2, label: "2個（左右それぞれ）" },
+                  { value: 1, label: "1個（両手で持つ）" },
+                ]}
+              />
+            </div>
+          )}
+
+          {exercise.unilateral && (
+            <div className="field">
+              <span className="field-label">左右</span>
+              <Segmented
+                label="左右"
+                value={form.side}
+                onChange={(side) => patch({ side })}
+                options={[
+                  { value: "left", label: "左" },
+                  { value: "right", label: "右" },
+                ]}
+              />
+            </div>
+          )}
+
+          <div className="field" role="group" aria-label="回数">
+            <span className="field-label">{exercise.id === "plank" ? "秒数" : "回数"}</span>
+            <div className="stepper">
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="回数を1減らす"
+                disabled={form.reps <= 1}
+                onClick={() => patch({ reps: Math.max(1, form.reps - 1) })}
+              >
+                <Icon name="minus" />
+              </button>
+              <div className="stepper-value">
+                <input
+                  className="stepper-input"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  aria-label="回数"
+                  value={form.reps}
+                  onChange={(e) => patch({ reps: Math.max(1, Math.floor(Number(e.target.value)) || 1) })}
+                />
+              </div>
+              <button type="button" className="stepper-btn" aria-label="回数を1増やす" onClick={() => patch({ reps: form.reps + 1 })}>
+                <Icon name="plus" />
+              </button>
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="field-label">余力（あと何回できそうだった？）</span>
+            <Segmented
+              label="余力"
+              size="sm"
+              value={form.effort}
+              onChange={(effort) => patch({ effort })}
+              options={(["0", "1", "2", "3+", "unknown"] as Effort[]).map((v) => ({
+                value: v,
+                label: v === "unknown" ? "不明" : formatEffortLabel(v).replace("あと", ""),
+              }))}
             />
-            {!exercise.unilateral && (
-              <label>
-                使用個数
-                <select
-                  value={form.pieceCount}
-                  onChange={(e) => {
-                    const pieceCount = Number(e.target.value) as 1 | 2;
-                    setForm((f) => ({ ...f, pieceCount, side: pieceCount === 2 ? "both" : "na" }));
-                  }}
-                >
-                  <option value={1}>1個(両手で保持)</option>
-                  <option value={2}>2個</option>
-                </select>
-              </label>
+          </div>
+
+          <div className="chips">
+            <Toggle label="痛みがある" tone="danger" pressed={form.pain} onChange={(pain) => patch({ pain })} />
+            <Toggle label="準備セット" pressed={form.isWarmup} onChange={(isWarmup) => patch({ isWarmup })} />
+          </div>
+
+          <div className="card-actions">
+            <button type="button" className="btn btn-lg" onClick={confirm}>
+              <Icon name="check" size={20} />
+              {editingId ? "この内容に更新" : `セット${setsHere.length + 1}を完了`}
+            </button>
+            {editingId && (
+              <button type="button" className="btn btn-secondary btn-lg" style={{ flex: "0 0 auto" }} onClick={() => setEditingId(null)}>
+                やめる
+              </button>
             )}
           </div>
-        )}
-        {exercise.unilateral && (
-          <label>
-            左右
-            <select value={form.side} onChange={(e) => setForm((f) => ({ ...f, side: e.target.value as Side }))}>
-              <option value="left">左</option>
-              <option value="right">右</option>
-            </select>
-          </label>
-        )}
-        <label>
-          回数
-          <input
-            type="number"
-            min={1}
-            value={form.reps}
-            onChange={(e) => setForm((f) => ({ ...f, reps: Number(e.target.value) }))}
-          />
-        </label>
-        <label>
-          余力
-          <select value={form.effort} onChange={(e) => setForm((f) => ({ ...f, effort: e.target.value as Effort }))}>
-            {(["0", "1", "2", "3+", "unknown"] as Effort[]).map((v) => (
-              <option key={v} value={v}>
-                {formatEffortLabel(v)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={form.pain}
-            onChange={(e) => setForm((f) => ({ ...f, pain: e.target.checked }))}
-          />
-          痛みがある
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={form.isWarmup}
-            onChange={(e) => setForm((f) => ({ ...f, isWarmup: e.target.checked }))}
-          />
-          準備セット
-        </label>
-        <button type="button" disabled={submitting} onClick={handleConfirm}>
-          {editingId ? "更新する" : "このセットを確定"}
-        </button>
-        {editingId && (
-          <button type="button" onClick={resetForm}>
-            編集をやめる
-          </button>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </section>
   );
 }
 
-export function Workout({ onEnd }: { onEnd: () => void }) {
-  const { data, updateSession } = useAppData();
-  const session = useMemo(
-    () => data.sessions.find((s) => s.status === "active" || s.status === "paused"),
-    [data.sessions]
-  );
+export function Workout({ onEnd, onGoToday }: { onEnd: () => void; onGoToday: () => void }) {
+  const { data, updateSession, updateSetRecord, startSession } = useAppData();
+  const session = useMemo(() => data.sessions.find((s) => s.status === "active" || s.status === "paused"), [data.sessions]);
   const now = useNowTick(1000);
-  const [manualExerciseId, setManualExerciseId] = useState("");
+  const goal = data.personalSettings.goalPrimary ?? "health";
 
   const proposal = useMemo(
     () => (session?.proposalId ? data.proposals.find((p) => p.id === session.proposalId) : undefined),
     [data.proposals, session]
   );
+  const [added, setAdded] = useState<string[]>([]);
+  const [openId, setOpenId] = useState<string | null | undefined>(undefined);
+  const [rest, setRest] = useState<{ until: number; total: number } | null>(null);
+  const [toast, setToast] = useState<{ message: string; undoId?: string } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
 
-  const [addedExerciseIds, setAddedExerciseIds] = useState<string[]>([]);
-
-  const exerciseIdsToShow = useMemo(() => {
+  const exerciseIds = useMemo(() => {
     const fromProposal = proposal?.items.map((i) => i.exerciseId) ?? [];
     const fromSets = session
-      ? [...new Set(data.setRecords.filter((s) => s.sessionId === session.id && !s.deletedAt).map((s) => s.exerciseId))]
+      ? data.setRecords.filter((s) => s.sessionId === session.id && !s.deletedAt).map((s) => s.exerciseId)
       : [];
-    return [...new Set([...fromProposal, ...fromSets, ...addedExerciseIds])];
-  }, [proposal, session, data.setRecords, addedExerciseIds]);
+    return [...new Set([...fromProposal, ...fromSets, ...added])];
+  }, [proposal, session, data.setRecords, added]);
+
+  const workingCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!session) return m;
+    for (const s of data.setRecords) {
+      if (s.sessionId === session.id && !s.deletedAt && !s.isWarmup) m.set(s.exerciseId, (m.get(s.exerciseId) ?? 0) + 1);
+    }
+    return m;
+  }, [data.setRecords, session]);
+
+  const isIncomplete = (id: string) => {
+    const target = proposal?.items.find((i) => i.exerciseId === id)?.sets;
+    return target == null || (workingCounts.get(id) ?? 0) < target;
+  };
+  const effectiveOpenId = openId === undefined ? (exerciseIds.find(isIncomplete) ?? null) : openId;
+
+  const addable = useMemo(() => {
+    const sets = groupSetsByExercise(data.setRecords);
+    return evaluateAvailability(data.exercises, data.equipment, [], sets).filter((a) => !exerciseIds.includes(a.exercise.id));
+  }, [data.exercises, data.equipment, data.setRecords, exerciseIds]);
 
   if (!session) {
     return (
       <div className="screen">
-        <h2>運動中</h2>
-        <p>アクティブなセッションがありません。「今日」タブから開始してください。</p>
+        <Card>
+          <EmptyState
+            title="運動中のセッションはありません"
+            body="今日の候補から始めるか、種目を自分で選んで記録を始められます。"
+            action={
+              <div className="card-actions" style={{ width: "100%" }}>
+                <button type="button" className="btn" onClick={onGoToday}>
+                  今日の候補を作る
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    startSession({
+                      id: newId(),
+                      startedAt: new Date().toISOString(),
+                      pausedIntervals: [],
+                      status: "active",
+                    });
+                    setAddOpen(true);
+                  }}
+                >
+                  種目を選んで始める
+                </button>
+              </div>
+            }
+          />
+        </Card>
       </div>
     );
   }
 
   const elapsedMs = activeIntervalsOfSession(session, now).reduce((sum, [a, b]) => sum + (b - a), 0);
-  const goal = data.personalSettings.goalPrimary ?? "health";
+  const totalSets = [...workingCounts.values()].reduce((a, b) => a + b, 0);
+  const paused = session.status === "paused";
+  const restRemaining = rest ? Math.max(0, Math.ceil((rest.until - now) / 1000)) : 0;
 
-  function handlePauseResume() {
+  function togglePause() {
     if (!session) return;
+    const t = new Date().toISOString();
     if (session.status === "active") {
-      updateSession(session.id, {
-        status: "paused",
-        pausedIntervals: [...session.pausedIntervals, { start: new Date().toISOString() }],
-      });
+      updateSession(session.id, { status: "paused", pausedIntervals: [...session.pausedIntervals, { start: t }] });
     } else {
-      const intervals = [...session.pausedIntervals];
-      const last = intervals[intervals.length - 1];
-      if (last && !last.end) last.end = new Date().toISOString();
+      const intervals = session.pausedIntervals.map((p, i, arr) => (i === arr.length - 1 && !p.end ? { ...p, end: t } : p));
       updateSession(session.id, { status: "active", pausedIntervals: intervals });
     }
   }
 
-  function handleEnd() {
+  function endSession() {
     if (!session) return;
-    updateSession(session.id, { status: "completed", endedAt: new Date().toISOString() });
+    const t = new Date().toISOString();
+    const intervals = session.pausedIntervals.map((p) => (p.end ? p : { ...p, end: t }));
+    updateSession(session.id, { status: "completed", endedAt: t, pausedIntervals: intervals });
+    setEndOpen(false);
     onEnd();
   }
 
-  const availableToAdd = data.exercises.filter((e) => !exerciseIdsToShow.includes(e.id));
-
   return (
     <div className="screen">
-      <h2>運動中</h2>
-      <p className="session-timer">
-        経過時間: {formatDurationMs(elapsedMs)}({session.status === "paused" ? "一時停止中" : "実施中"})
-      </p>
-      <div className="session-controls">
-        <button type="button" onClick={handlePauseResume}>
-          {session.status === "active" ? "一時停止" : "再開"}
+      <div className="session-bar">
+        <div>
+          <div className="session-time" aria-label="経過時間" data-testid="elapsed">
+            {formatClock(elapsedMs)}
+          </div>
+        </div>
+        <div className="session-meta">
+          {paused ? "一時停止中" : "実施中"}
+          <br />
+          {totalSets}セット完了
+        </div>
+        <button type="button" className="icon-btn" aria-label={paused ? "再開" : "一時停止"} onClick={togglePause}>
+          <Icon name={paused ? "play" : "pause"} size={20} />
         </button>
-        <button type="button" onClick={handleEnd}>
-          セッション終了
+        <button type="button" className="btn btn-sm" style={{ background: "var(--bg)", color: "var(--text)" }} onClick={() => setEndOpen(true)}>
+          終了
         </button>
       </div>
 
-      {exerciseIdsToShow.map((id) => {
+      {exerciseIds.length === 0 && (
+        <Card>
+          <EmptyState title="種目を選んでください" body="下の「種目を追加」から、今日やる種目を選べます。" />
+        </Card>
+      )}
+
+      {exerciseIds.map((id) => {
         const exercise = data.exercises.find((e) => e.id === id);
         if (!exercise) return null;
-        const proposalItem = proposal?.items.find((i) => i.exerciseId === id);
         return (
           <ExercisePanel
             key={id}
             exercise={exercise}
-            sessionId={session.id}
+            session={session}
             goal={goal}
-            proposalItem={proposalItem}
+            proposalItem={proposal?.items.find((i) => i.exerciseId === id)}
+            open={effectiveOpenId === id}
+            onToggle={() => setOpenId(effectiveOpenId === id ? null : id)}
+            onSetAdded={(restSec, finished) => {
+              if (restSec) setRest({ until: Date.now() + restSec * 1000, total: restSec });
+              if (finished) {
+                const next = exerciseIds.find((x) => x !== id && isIncomplete(x));
+                setOpenId(next ?? null);
+              }
+            }}
+            onSetDeleted={(recordId) => setToast({ message: "セットを削除しました", undoId: recordId })}
           />
         );
       })}
 
-      <div className="add-exercise">
-        <select value={manualExerciseId} onChange={(e) => setManualExerciseId(e.target.value)}>
-          <option value="">種目を追加(手動選択)...</option>
-          {availableToAdd.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={!manualExerciseId}
-          onClick={() => {
-            setAddedExerciseIds((prev) => [...prev, manualExerciseId]);
-            setManualExerciseId("");
-          }}
-        >
-          追加
+      <button type="button" className="btn btn-secondary btn-block" onClick={() => setAddOpen(true)}>
+        <Icon name="plus" size={18} /> 種目を追加
+      </button>
+
+      {rest && restRemaining > 0 && (
+        <div className="rest-bar" role="timer" aria-label="休憩タイマー">
+          <div>
+            <div className="rest-label">休憩中</div>
+            <div className="rest-count" data-testid="rest-remaining">
+              {formatClock(restRemaining * 1000)}
+            </div>
+          </div>
+          <button type="button" className="btn" onClick={() => setRest({ until: rest.until + 15000, total: rest.total + 15 })}>
+            +15秒
+          </button>
+          <button type="button" className="btn" onClick={() => setRest(null)}>
+            スキップ
+          </button>
+          <div className="rest-track" aria-hidden="true">
+            <div className="rest-fill" style={{ width: `${Math.min(100, (restRemaining / rest.total) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
+      {rest && restRemaining > 0 && <div style={{ height: 84 }} aria-hidden="true" />}
+
+      <Sheet title="種目を追加" open={addOpen} onClose={() => setAddOpen(false)}>
+        {addable.length === 0 && <p className="muted">追加できる種目がありません。</p>}
+        {addable.map((a) => {
+          const blocked = !a.available && !a.excludedByPain;
+          return (
+            <button
+              key={a.exercise.id}
+              type="button"
+              className="pick-row"
+              disabled={blocked}
+              style={blocked ? { opacity: 0.5 } : undefined}
+              onClick={() => {
+                setAdded((prev) => [...prev, a.exercise.id]);
+                setOpenId(a.exercise.id);
+                setAddOpen(false);
+              }}
+            >
+              <div>
+                <strong>{a.exercise.name}</strong>
+                <span>
+                  {a.exercise.primaryMuscle}
+                  {a.excludedByPain ? " ・前回痛みの申告あり" : ""}
+                  {blocked ? ` ・${a.unavailableReason}` : ""}
+                </span>
+              </div>
+              <Icon name="chevron" size={18} />
+            </button>
+          );
+        })}
+      </Sheet>
+
+      <Sheet title="セッションを終了" open={endOpen} onClose={() => setEndOpen(false)}>
+        <p className="lead">
+          {totalSets}セット・{formatClock(elapsedMs)}の記録を保存して終了します。
+        </p>
+        <button type="button" className="btn btn-block btn-lg" onClick={endSession}>
+          終了して振り返る
         </button>
-      </div>
+        <button type="button" className="btn btn-secondary btn-block" onClick={() => setEndOpen(false)}>
+          続ける
+        </button>
+      </Sheet>
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          actionLabel={toast.undoId ? "元に戻す" : undefined}
+          onAction={() => toast.undoId && updateSetRecord(toast.undoId, { deletedAt: undefined })}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }

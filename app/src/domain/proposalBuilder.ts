@@ -77,7 +77,7 @@ export function evaluateAvailability(
   });
 }
 
-function estimatedSecondsForExercise(exercise: Exercise, goal: Goal): number {
+export function estimatedSecondsForExercise(exercise: Exercise, goal: Goal): number {
   const range = exercise.repRangeByGoal[goal];
   return (
     PREP_SECONDS_PER_EXERCISE +
@@ -109,16 +109,7 @@ export function buildProposal(params: BuildProposalParams): { proposal: Proposal
   const dumbbell = getDumbbell(data.equipment);
   const steps = dumbbell?.weightStepsKg ?? [];
 
-  const setsByExercise = new Map<string, SetRecord[]>();
-  for (const s of data.setRecords) {
-    if (s.deletedAt || s.isWarmup) continue;
-    const list = setsByExercise.get(s.exerciseId) ?? [];
-    list.push(s);
-    setsByExercise.set(s.exerciseId, list);
-  }
-  for (const list of setsByExercise.values()) {
-    list.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-  }
+  const setsByExercise = groupSetsByExercise(data.setRecords);
 
   const availability = evaluateAvailability(
     data.exercises,
@@ -130,16 +121,21 @@ export function buildProposal(params: BuildProposalParams): { proposal: Proposal
   const candidates = availability.filter((a) => a.available).map((a) => a.exercise);
   const excluded = availability.filter((a) => !a.available);
 
-  const matchesSelectedMuscle = (ex: Exercise) =>
-    selectedMuscles.length === 0 ||
-    selectedMuscles.includes(ex.primaryMuscle) ||
-    ex.secondaryMuscles.some((m) => selectedMuscles.includes(m));
+  // 選択部位との関係: 0=主対象, 1=補助のみ, 2=無関係(未選択時は全て0)
+  const muscleRank = (ex: Exercise): number => {
+    if (selectedMuscles.length === 0) return 0;
+    if (selectedMuscles.includes(ex.primaryMuscle)) return 0;
+    if (ex.secondaryMuscles.some((m) => selectedMuscles.includes(m))) return 1;
+    return 2;
+  };
 
   const prioritized = [...candidates].sort((a, b) => {
-    const aMatch = matchesSelectedMuscle(a) ? 0 : 1;
-    const bMatch = matchesSelectedMuscle(b) ? 0 : 1;
-    if (aMatch !== bMatch) return aMatch - bMatch;
-    return lastPerformedAtMs(a.id, setsByExercise) - lastPerformedAtMs(b.id, setsByExercise);
+    const rankDiff = muscleRank(a) - muscleRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    // 未実施(-Infinity)同士の差はNaNになるため、比較を明示する
+    const aAt = lastPerformedAtMs(a.id, setsByExercise);
+    const bAt = lastPerformedAtMs(b.id, setsByExercise);
+    return aAt === bAt ? 0 : aAt < bAt ? -1 : 1;
   });
 
   let remainingSeconds = availableMinutes * 60;
@@ -154,30 +150,9 @@ export function buildProposal(params: BuildProposalParams): { proposal: Proposal
     if (remainingSeconds <= 0) break;
   }
 
-  const items: ProposalItem[] = chosen.map((exercise) => {
-    const history = setsByExercise.get(exercise.id) ?? [];
-    if (exercise.loadType === "bodyweight") {
-      const s = suggestBodyweight(exercise, goal, history);
-      return {
-        exerciseId: exercise.id,
-        reps: s.reps,
-        sets: s.sets,
-        pieceCount: s.pieceCount,
-        reason: s.reason,
-        isInitialAdjustment: s.isInitialAdjustment,
-      };
-    }
-    const s = suggestDumbbellProgression(exercise, goal, steps, history);
-    return {
-      exerciseId: exercise.id,
-      reps: s.reps,
-      sets: s.sets,
-      weightKg: s.weightKg,
-      pieceCount: s.pieceCount,
-      reason: s.reason,
-      isInitialAdjustment: s.isInitialAdjustment,
-    };
-  });
+  const items: ProposalItem[] = chosen.map((exercise) =>
+    buildProposalItem(exercise, goal, steps, setsByExercise.get(exercise.id) ?? [])
+  );
 
   const proposal: Proposal = {
     id: newId(),
@@ -189,6 +164,52 @@ export function buildProposal(params: BuildProposalParams): { proposal: Proposal
   };
 
   return { proposal, excluded };
+}
+
+
+/** 完了済み・本番セットのみを種目別にまとめ、新しい順に並べる */
+export function groupSetsByExercise(setRecords: SetRecord[]): Map<string, SetRecord[]> {
+  const map = new Map<string, SetRecord[]>();
+  for (const s of setRecords) {
+    if (s.deletedAt || s.isWarmup) continue;
+    const list = map.get(s.exerciseId) ?? [];
+    list.push(s);
+    map.set(s.exerciseId, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+  }
+  return map;
+}
+
+/** 1種目分の提案(回数・セット・重量・理由)を作る。種目交換時にも使う。 */
+export function buildProposalItem(
+  exercise: Exercise,
+  goal: Goal,
+  steps: readonly number[],
+  historyDesc: SetRecord[]
+): ProposalItem {
+  if (exercise.loadType === "bodyweight") {
+    const s = suggestBodyweight(exercise, goal, historyDesc);
+    return {
+      exerciseId: exercise.id,
+      reps: s.reps,
+      sets: s.sets,
+      pieceCount: s.pieceCount,
+      reason: s.reason,
+      isInitialAdjustment: s.isInitialAdjustment,
+    };
+  }
+  const s = suggestDumbbellProgression(exercise, goal, steps, historyDesc);
+  return {
+    exerciseId: exercise.id,
+    reps: s.reps,
+    sets: s.sets,
+    weightKg: s.weightKg,
+    pieceCount: s.pieceCount,
+    reason: s.reason,
+    isInitialAdjustment: s.isInitialAdjustment,
+  };
 }
 
 export function personalSettingsDefaults(): PersonalSettings {

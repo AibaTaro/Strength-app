@@ -9,6 +9,7 @@ npm run dev      # 開発サーバー起動
 npm run build    # 型チェック(tsc -b) + 本番ビルド
 npm run lint     # ESLint
 npm run test     # vitest(ユニットテスト・受入基準の一部を自動検証)
+npm run test:e2e # Playwright E2E(スマホ幅Chromium。初回のみ `npx playwright install chromium`)
 ```
 
 ## 絶対に守るルール
@@ -19,6 +20,8 @@ npm run test     # vitest(ユニットテスト・受入基準の一部を自動
 - 年齢・体重・過去の実績から数値を断定・捏造しない。履歴がなければ「初回調整」と明示する。
 - ベンチ(STEADY ST123)の角度調整仕様が未確認の間は、角度指定が必要な種目(`requiresBenchAngle: true`)を提案候補に出さない。
 - 教材(動画等)は出典・利用条件が確認できたものだけ`materialStatus: "confirmed"`にする。未確認を確認済みと表示しない。
+- ID生成は `domain/id.ts` の `newId()` を使う(`crypto.randomUUID`はHTTPのスマホで使えない)。
+- E2Eのセレクタは役割名・ラベル(アクセシビリティ)基準。ボタン名やaria-labelを変えるときはe2e/も更新する。
 - 認証・サーバー保存・複数端末同期は実装しない(今回の対象外)。
 - 個人設定・種目データ・提案ロジックはモジュールとして分離した状態を維持する(将来の同期対応に備えるが、同期基盤自体は作らない)。
 
@@ -32,4 +35,4 @@ npm run lint
 npm run test
 ```
 
-3つとも失敗がない状態でコミットする。
+3つとも失敗がない状態でコミットする。UI・保存・提案ロジックを変えたときは `npm run test:e2e` も通すこと。

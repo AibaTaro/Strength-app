@@ -1,59 +1,63 @@
-import { newId } from "../domain/id";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppData } from "../state/AppContext";
-import { buildProposal, evaluateAvailability } from "../domain/proposalBuilder";
+import { newId } from "../domain/id";
+import {
+  buildProposal,
+  buildProposalItem,
+  estimatedSecondsForExercise,
+  evaluateAvailability,
+  groupSetsByExercise,
+} from "../domain/proposalBuilder";
 import { getDumbbell } from "../domain/equipment";
-import { suggestBodyweight, suggestDumbbellProgression } from "../domain/suggestion";
-import { formatGoalLabel, formatWeightLabel } from "../domain/format";
-import type { Proposal, ProposalItem, SetRecord } from "../domain/types";
+import { formatGoalLabel } from "../domain/format";
+import type { Proposal } from "../domain/types";
+import { Card, EmptyState, Icon, Segmented, Sheet } from "../components/ui";
 
 interface Props {
   onStartWorkout: () => void;
+  onOpenSettings: () => void;
 }
 
-export function Today({ onStartWorkout }: Props) {
+export function Today({ onStartWorkout, onOpenSettings }: Props) {
   const { data, addProposal, startSession } = useAppData();
-  const uniqueMuscles = useMemo(
-    () => [...new Set(data.exercises.map((e) => e.primaryMuscle))],
-    [data.exercises]
-  );
+  const muscles = useMemo(() => [...new Set(data.exercises.map((e) => e.primaryMuscle))], [data.exercises]);
   const [selectedMuscles, setSelectedMuscles] = useState<string[]>([]);
-  const [minutes, setMinutes] = useState(30);
+  const [minutes, setMinutes] = useState(data.personalSettings.sessionMinutes ?? 30);
   const [fatigue, setFatigue] = useState<"low" | "mid" | "high">("low");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [excludedReasons, setExcludedReasons] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [swapIndex, setSwapIndex] = useState<number | null>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
 
-  const setsByExercise = useMemo(() => {
-    const map = new Map<string, SetRecord[]>();
-    for (const s of data.setRecords) {
-      if (s.deletedAt || s.isWarmup) continue;
-      const list = map.get(s.exerciseId) ?? [];
-      list.push(s);
-      map.set(s.exerciseId, list);
-    }
-    for (const list of map.values()) {
-      list.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-    }
-    return map;
-  }, [data.setRecords]);
+  const activeSession = data.sessions.find((s) => s.status === "active" || s.status === "paused");
+  const goal = data.personalSettings.goalPrimary ?? "health";
+  const setsByExercise = useMemo(() => groupSetsByExercise(data.setRecords), [data.setRecords]);
+  const exerciseById = useMemo(() => new Map(data.exercises.map((e) => [e.id, e])), [data.exercises]);
 
-  const availableForSwap = useMemo(() => {
-    return evaluateAvailability(
-      data.exercises,
-      data.equipment,
-      data.personalSettings.avoidMovements ?? [],
-      setsByExercise
-    )
-      .filter((a) => a.available)
-      .map((a) => a.exercise);
-  }, [data.exercises, data.equipment, data.personalSettings.avoidMovements, setsByExercise]);
+  const swapCandidates = useMemo(
+    () =>
+      evaluateAvailability(
+        data.exercises,
+        data.equipment,
+        data.personalSettings.avoidMovements ?? [],
+        setsByExercise
+      )
+        .filter((a) => a.available)
+        .map((a) => a.exercise)
+        .filter((e) => !proposal?.items.some((it) => it.exerciseId === e.id)),
+    [data.exercises, data.equipment, data.personalSettings.avoidMovements, setsByExercise, proposal]
+  );
+
+  useEffect(() => {
+    if (proposal) resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [proposal?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleMuscle(m: string) {
     setSelectedMuscles((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
   }
 
-  function handleBuildProposal() {
+  function handleBuild() {
     setErrorMessage(null);
     try {
       const { proposal: p, excluded } = buildProposal({
@@ -63,122 +67,214 @@ export function Today({ onStartWorkout }: Props) {
         now: new Date(),
       });
       setProposal(p);
-      setExcludedReasons(excluded.map((e) => `${e.exercise.name}: ${e.unavailableReason ?? ""}`));
+      setExcludedReasons(excluded.map((e) => `${e.exercise.name}：${e.unavailableReason ?? ""}`));
       if (p.items.length === 0) {
         setErrorMessage(
-          "条件に合う種目がありません。選んだ部位・使える時間・避けたい種目の設定を見直してください。除外理由は下の一覧を確認できます。"
+          "条件に合う種目がありません。部位・使える時間・避けたい種目の設定を見直してください。除外した理由は下の一覧で確認できます。"
         );
       }
     } catch (e) {
       setProposal(null);
-      setErrorMessage(`候補を作れませんでした: ${e instanceof Error ? e.message : String(e)}`);
+      setErrorMessage(`候補を作れませんでした：${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  function recomputeItem(exerciseId: string): ProposalItem {
-    const exercise = data.exercises.find((e) => e.id === exerciseId)!;
-    const goal = data.personalSettings.goalPrimary ?? "health";
-    const history = setsByExercise.get(exerciseId) ?? [];
-    const dumbbell = getDumbbell(data.equipment);
-    if (exercise.loadType === "bodyweight") {
-      const s = suggestBodyweight(exercise, goal, history);
-      return {
-        exerciseId,
-        reps: s.reps,
-        sets: s.sets,
-        pieceCount: s.pieceCount,
-        reason: s.reason,
-        isInitialAdjustment: s.isInitialAdjustment,
-      };
-    }
-    const s = suggestDumbbellProgression(exercise, goal, dumbbell?.weightStepsKg ?? [], history);
-    return {
-      exerciseId,
-      reps: s.reps,
-      sets: s.sets,
-      weightKg: s.weightKg,
-      pieceCount: s.pieceCount,
-      reason: s.reason,
-      isInitialAdjustment: s.isInitialAdjustment,
-    };
-  }
-
-  function swapItem(index: number, newExerciseId: string) {
+  function swapTo(index: number, exerciseId: string) {
     if (!proposal) return;
-    const newItem = recomputeItem(newExerciseId);
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise) return;
+    const item = buildProposalItem(
+      exercise,
+      goal,
+      getDumbbell(data.equipment)?.weightStepsKg ?? [],
+      setsByExercise.get(exerciseId) ?? []
+    );
     const items = [...proposal.items];
-    items[index] = newItem;
+    items[index] = item;
     setProposal({ ...proposal, items });
+    setSwapIndex(null);
+  }
+
+  function removeItem(index: number) {
+    if (!proposal) return;
+    setProposal({ ...proposal, items: proposal.items.filter((_, i) => i !== index) });
   }
 
   function handleStart() {
-    if (!proposal) return;
+    if (!proposal || proposal.items.length === 0) return;
     addProposal(proposal);
-    const session = {
+    startSession({
       id: newId(),
       startedAt: new Date().toISOString(),
       pausedIntervals: [],
-      status: "active" as const,
+      status: "active",
       fatigue,
       proposalId: proposal.id,
-    };
-    startSession(session);
+    });
     onStartWorkout();
   }
 
+  const totalMinutes = proposal
+    ? Math.round(
+        proposal.items.reduce((sum, it) => {
+          const ex = exerciseById.get(it.exerciseId);
+          return sum + (ex ? estimatedSecondsForExercise(ex, goal) : 0);
+        }, 0) / 60
+      )
+    : 0;
+
   return (
     <div className="screen">
-      <h2>今日の運動</h2>
-      <section>
-        <h3>部位(任意、複数選択可)</h3>
-        <div className="chip-list">
-          {uniqueMuscles.map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={selectedMuscles.includes(m) ? "chip chip-selected" : "chip"}
-              onClick={() => toggleMuscle(m)}
-            >
-              {m}
-            </button>
-          ))}
+      {activeSession && (
+        <Card tone="accent">
+          <p className="lead">
+            <strong>運動中のセッションがあります。</strong>続きから記録できます。
+          </p>
+          <button type="button" className="btn btn-block" onClick={onStartWorkout}>
+            <Icon name="play" size={18} /> 運動を再開する
+          </button>
+        </Card>
+      )}
+
+      {!data.personalSettings.goalPrimary && (
+        <Card tone="warn">
+          <p className="lead">
+            <strong>目的が未設定です。</strong>設定すると、回数・セット数が目的に合わせて調整されます(未設定の間は「健康維持」で計算)。
+          </p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onOpenSettings}>
+            設定を開く
+          </button>
+        </Card>
+      )}
+
+      <Card>
+        <div className="field" role="group" aria-label="鍛える部位">
+          <span className="field-label">鍛える部位（未選択ならおまかせ）</span>
+          <div className="chips">
+            {muscles.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className="chip"
+                aria-pressed={selectedMuscles.includes(m)}
+                onClick={() => toggleMuscle(m)}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
-      </section>
-      <section>
-        <label>
-          使える時間(分)
-          <input
-            type="number"
-            min={5}
+        <div className="field">
+          <span className="field-label">使える時間</span>
+          <Segmented
+            label="使える時間"
             value={minutes}
-            onChange={(e) => setMinutes(Number(e.target.value))}
+            onChange={setMinutes}
+            options={[15, 30, 45, 60, 90].map((m) => ({ value: m, label: `${m}分` }))}
           />
-        </label>
-      </section>
-      <section>
-        <label>
-          今日の疲労
-          <select value={fatigue} onChange={(e) => setFatigue(e.target.value as typeof fatigue)}>
-            <option value="low">少ない</option>
-            <option value="mid">普通</option>
-            <option value="high">強い</option>
-          </select>
-        </label>
-      </section>
-      <p className="hint">目的: {formatGoalLabel(data.personalSettings.goalPrimary)}(設定画面で変更できます)</p>
-      <button type="button" onClick={handleBuildProposal}>
-        候補を作る
-      </button>
+        </div>
+        <div className="field">
+          <span className="field-label">今日の疲労</span>
+          <Segmented
+            label="今日の疲労"
+            value={fatigue}
+            onChange={setFatigue}
+            options={[
+              { value: "low", label: "少ない" },
+              { value: "mid", label: "普通" },
+              { value: "high", label: "強い" },
+            ]}
+          />
+        </div>
+        <p className="muted">目的：{formatGoalLabel(data.personalSettings.goalPrimary)}</p>
+        <button type="button" className="btn btn-block btn-lg" onClick={handleBuild}>
+          <Icon name="today" size={20} /> 今日の候補を作る
+        </button>
+      </Card>
+
+      <div ref={resultRef} style={{ scrollMarginTop: 90 }} />
 
       {errorMessage && (
-        <p role="alert" className="error-message">
-          {errorMessage}
-        </p>
+        <Card tone="danger">
+          <p role="alert" className="lead">
+            {errorMessage}
+          </p>
+        </Card>
+      )}
+
+      {proposal && proposal.items.length > 0 && (
+        <>
+          <div className="section-title">
+            <h2>今日の候補</h2>
+            <span className="muted">
+              {proposal.items.length}種目・約{totalMinutes}分
+            </span>
+          </div>
+          {proposal.items.map((item, idx) => {
+            const ex = exerciseById.get(item.exerciseId);
+            if (!ex) return null;
+            const pieces = item.pieceCount ?? ex.defaultPieceCount;
+            return (
+              <section key={item.exerciseId} className="card" aria-label={ex.name}>
+                <div className="proposal-head">
+                  <span className="proposal-index">{idx + 1}</span>
+                  <div className="proposal-title">
+                    <h3>{ex.name}</h3>
+                    <p className="muted">{ex.primaryMuscle}</p>
+                  </div>
+                </div>
+                <div className="spec">
+                  {item.weightKg != null ? (
+                    <span className="spec-main">
+                      {item.weightKg}
+                      <small>kg</small> × {pieces}
+                      <small>個</small>
+                    </span>
+                  ) : (
+                    <span className="spec-main">自重</span>
+                  )}
+                  <span className="spec-sub">
+                    {item.reps}
+                    <small>回</small> × {item.sets}
+                    <small>セット</small>
+                  </span>
+                </div>
+                <div className="badges">
+                  {item.isInitialAdjustment && <span className="badge badge-warn">初回調整</span>}
+                  {ex.materialStatus === "confirmed" ? (
+                    <span className="badge badge-ok">教材 確認済み</span>
+                  ) : (
+                    <span className="badge">教材 未確認</span>
+                  )}
+                </div>
+                <p className="reason">{item.reason}</p>
+                <div className="card-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSwapIndex(idx)}>
+                    <Icon name="swap" size={16} /> 種目を変える
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeItem(idx)}>
+                    外す
+                  </button>
+                </div>
+              </section>
+            );
+          })}
+
+          <div className="cta-bar">
+            <button type="button" className="btn btn-block btn-lg" onClick={handleStart}>
+              この内容で開始（{proposal.items.length}種目）
+            </button>
+          </div>
+        </>
+      )}
+
+      {proposal && proposal.items.length === 0 && !errorMessage && (
+        <EmptyState title="候補がありません" body="条件を変えてもう一度お試しください。" />
       )}
 
       {excludedReasons.length > 0 && (
-        <details className="excluded-box">
-          <summary>候補から除外した種目({excludedReasons.length})</summary>
+        <details className="card details">
+          <summary>候補から除外した種目（{excludedReasons.length}）</summary>
           <ul>
             {excludedReasons.map((r) => (
               <li key={r}>{r}</li>
@@ -187,55 +283,23 @@ export function Today({ onStartWorkout }: Props) {
         </details>
       )}
 
-      {proposal && (
-        <section>
-          <h3>候補</h3>
-          {proposal.items.length === 0 && <p>条件に合う種目がありません。部位や時間を変えてください。</p>}
-          <ul className="proposal-list">
-            {proposal.items.map((item, idx) => {
-              const exercise = data.exercises.find((e) => e.id === item.exerciseId)!;
-              return (
-                <li key={item.exerciseId} className="proposal-item">
-                  <div className="proposal-item-header">
-                    <strong>{exercise.name}</strong>
-                    <select
-                      aria-label="種目交換"
-                      value=""
-                      onChange={(e) => e.target.value && swapItem(idx, e.target.value)}
-                    >
-                      <option value="">種目交換...</option>
-                      {availableForSwap
-                        .filter((e) => !proposal.items.some((it) => it.exerciseId === e.id))
-                        .map((e) => (
-                          <option key={e.id} value={e.id}>
-                            {e.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    {item.weightKg != null
-                      ? formatWeightLabel(item.weightKg, item.pieceCount ?? exercise.defaultPieceCount)
-                      : "自重"}
-                    {" × "}
-                    {item.reps}回 × {item.sets}セット
-                  </div>
-                  {item.isInitialAdjustment && <span className="badge">初回調整</span>}
-                  <p className="reason">{item.reason}</p>
-                  <p className="material-status">
-                    教材: {exercise.materialStatus === "confirmed" ? "確認済み" : "未確認"}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
-          {proposal.items.length > 0 && (
-            <button type="button" onClick={handleStart}>
-              この内容で開始
-            </button>
-          )}
-        </section>
-      )}
+      <Sheet title="種目を変える" open={swapIndex !== null} onClose={() => setSwapIndex(null)}>
+        {swapCandidates.length === 0 && <p className="muted">交換できる種目がありません。</p>}
+        {swapCandidates.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            className="pick-row"
+            onClick={() => swapIndex !== null && swapTo(swapIndex, e.id)}
+          >
+            <div>
+              <strong>{e.name}</strong>
+              <span>{e.primaryMuscle}</span>
+            </div>
+            <Icon name="chevron" size={18} />
+          </button>
+        ))}
+      </Sheet>
     </div>
   );
 }
