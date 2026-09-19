@@ -10,7 +10,17 @@ const H = 780;
  * 人体図(解剖学モデル)をタップして、鍛える部位を選ぶ。
  * 色付きのレイヤー(public/bodymap)を重ね、選んだ部位は明るく、未選択は薄く光って押せる場所を示す。
  */
-export function BodyMap({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+export function BodyMap({
+  value,
+  onChange,
+  onAuto,
+  note,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+  onAuto: () => void;
+  note?: string | null;
+}) {
   const [view, setView] = useState<View>("front");
   const alpha = useRef(new Map<string, ImageData>());
   const [ready, setReady] = useState(0);
@@ -81,9 +91,17 @@ export function BodyMap({ value, onChange }: { value: string[]; onChange: (ids: 
       </div>
       <p className="muted bodymap-hint">
         {value.length === 0
-          ? "鍛えたい部位をタップしてください。未選択ならおまかせで選びます。"
+          ? "鍛えたい部位をタップしてください。未選択なら全身からおまかせで選びます。"
           : `選択中：${BODY_GROUPS.filter((g) => value.includes(g.id)).map((g) => g.label).join("・")}`}
       </p>
+      {note && value.length > 0 && (
+        <p className="muted bodymap-note" data-testid="auto-note">
+          {note}
+        </p>
+      )}
+      <button type="button" className="btn btn-secondary btn-sm" onClick={onAuto}>
+        おまかせで選ぶ
+      </button>
       {value.length > 0 && (
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange([])}>
           選択をすべて解除

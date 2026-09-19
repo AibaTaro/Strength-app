@@ -1225,3 +1225,9 @@ input.stepper-input {
   white-space: nowrap;
   border: 0;
 }
+
+.bodymap-note {
+  text-align: center;
+  color: var(--primary);
+  font-weight: 700;
+}

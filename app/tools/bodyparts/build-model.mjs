@@ -9,9 +9,11 @@ import { readSTL } from "./stl.mjs";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const cache = path.join(dir, "cache");
-const parts = JSON.parse(fs.readFileSync(path.join(cache, "selected.json"), "utf8"));
+const allParts = JSON.parse(fs.readFileSync(path.join(cache, "selected.json"), "utf8"));
 await MeshoptSimplifier.ready;
 
+const HEAD_SKIP = /mandible|skull|cranial|frontal bone|parietal|occipital|temporal bone|sphenoid|ethmoid|zygomatic|maxilla|nasal|lacrimal|palatine|temporalis|masseter/i;
+const parts = allParts.filter((p) => !HEAD_SKIP.test(p.name));
 const byName = (re) => parts.filter((p) => re.test(p.name));
 const raw = new Map();
 const load = (p) => {
@@ -49,7 +51,7 @@ A.neck = cap("seventh cervical vertebra", "top", 0.3);
 A.headPivot = cap("atlas", "top", 0.4);
 // 足裏の高さ・つま先・指先・頭頂
 let floorZ = Infinity, toeY = Infinity, tipZ = Infinity, headTop = -Infinity;
-for (const p of parts.filter((q) => q.kind === "bone")) {
+for (const p of allParts.filter((q) => q.kind === "bone")) {
   const pos = load(p).positions;
   const isFoot = /calcaneus|talus|metatarsal|cuboid|navicular|cuneiform|phalanx/.test(p.name) && false;
   for (let i = 0; i < pos.length; i += 3) {
@@ -156,7 +158,7 @@ function weights(p, rules) {
     const armIdx = new Set([3, 5]);
     const t = rules.ramp === "lat" ? smooth((p[1] - (anchors.shoulderL[1] - 0.25)) / 0.12) : smooth((Math.abs(p[0]) - 0.1) / 0.06);
     // 腕に追従するのは、上腕の近く(約10cm以内)の頂点だけ
-    w = w.map((x, k) => (armIdx.has(d[k][1]) ? x * t * smooth(((rules.ramp === "lat" ? 0.08 : 0.11) - d[k][0]) / 0.04) : x));
+    w = w.map((x, k) => (armIdx.has(d[k][1]) ? x * t * smooth(((rules.ramp === "lat" ? 0.05 : 0.08) - d[k][0]) / 0.04) : x));
     if (w.every((x) => x === 0)) w = d.map(([, i]) => (i === 1 ? 1 : 0));
   }
   const sum = w.reduce((x, y) => x + y, 0) || 1;

@@ -149,6 +149,21 @@ export class Rig {
       const ankle = mk(knee, new THREE.Vector3(0, -S, 0));
       this.legs[side] = { root: hip, mid: knee, end: ankle };
     }
+    // 頭: 顔面は鍛える対象ではないため、頭蓋骨や筋肉は出さず、なめらかな頭にする
+    const skin = new THREE.MeshStandardMaterial({ color: 0xc9ccd6, roughness: 0.6 });
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 28), skin);
+    skull.scale.set(0.083, 0.098, 0.095);
+    skull.position.set(0, 0.078, 0.012);
+    const jaw = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), skin);
+    jaw.scale.set(0.058, 0.06, 0.07);
+    jaw.position.set(0, 0.03, 0.03);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.04, 12), skin);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 0.06, 0.1);
+    for (const m of [skull, jaw, nose]) {
+      m.castShadow = true;
+      head.add(m);
+    }
     this.scene.add(root);
     const bones: THREE.Bone[] = [
       root, torso, head,
@@ -210,13 +225,15 @@ export class Rig {
 
   private buildProps() {
     const mat = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.5, metalness: 0.35 });
+    const plateMat = new THREE.MeshStandardMaterial({ color: 0x2d9cff, roughness: 0.35, metalness: 0.25, emissive: 0x0a3a70, emissiveIntensity: 0.5 });
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0xd5d9e2, roughness: 0.3, metalness: 0.6 });
     for (let i = 0; i < 2; i++) {
       const g = new THREE.Group();
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), mat);
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), gripMat);
       handle.rotation.z = Math.PI / 2;
       g.add(handle);
       for (const x of [-0.09, 0.09]) {
-        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 6), mat);
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.045, 6), plateMat);
         plate.rotation.z = Math.PI / 2;
         plate.position.x = x;
         plate.castShadow = true;

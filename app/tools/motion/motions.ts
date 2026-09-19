@@ -225,7 +225,7 @@ export function buildMotions(d: Dims): Record<string, Motion> {
           bench: { pos: [0, 0, -0.32], ry: 90 },
           ...feetIK([0.2, ANK, 0.42], [0.2, 1, 0.7]),
           footYaw: 6,
-          ...armsIK([0.13, 0.1, 0.16], "root", [0.4, 0.2, 0.5]),
+          ...armsIK([0.14, 0.0, 0.14], "root", [0.8, -0.2, 0.3]),
           heldTwo: { axis: X, frame: "world" },
         };
       },

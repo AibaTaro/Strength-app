@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { buildProposal, card, open, selectGroup } from "./helpers";
+import { buildProposal, card, mutateData, open, selectGroup } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await open(page);
@@ -10,8 +10,10 @@ test.beforeEach(async ({ page }) => {
 
 /** 人体図の上の位置(幅・高さの割合)をタップする */
 async function tap(page: Page, xr: number, yr: number) {
-  const b = (await page.getByTestId("bodymap-stage").boundingBox())!;
-  await page.mouse.click(b.x + b.width * xr, b.y + b.height * yr);
+  const stage = page.getByTestId("bodymap-stage");
+  const b = (await stage.boundingBox())!;
+  // Playwrightにスクロールと、固定ヘッダーに隠れていないかの確認を任せる
+  await stage.click({ position: { x: b.width * xr, y: b.height * yr } });
 }
 const hint = (page: Page) => page.locator(".bodymap-hint");
 
@@ -82,5 +84,38 @@ test.describe("人体図で部位を選ぶ", () => {
       expect(await page.locator("section.card[aria-label]").count(), label).toBeGreaterThan(0);
       void card;
     }
+  });
+});
+
+test.describe("おまかせ", () => {
+  test("「おまかせで選ぶ」で部位が自動選択され、理由が表示される", async ({ page }) => {
+    await page.getByRole("button", { name: "おまかせで選ぶ" }).click();
+    await expect(page.locator(".bodymap-hint")).toHaveText("選択中：胸・肩");
+    await expect(page.getByTestId("auto-note")).toContainText("おまかせ：胸（まだ記録なし）・肩（まだ記録なし）");
+    await expect(page.locator("img.bodymap-on")).toHaveCount(2);
+  });
+
+  test("手で選び直すと、おまかせの説明は消える", async ({ page }) => {
+    await page.getByRole("button", { name: "おまかせで選ぶ" }).click();
+    await tap(page, 0.42, 0.33); // 胸を外す
+    await expect(page.getByTestId("auto-note")).toHaveCount(0);
+  });
+
+  test("最近鍛えた部位は避けて、空いている部位を選ぶ", async ({ page }) => {
+    await mutateData(
+      page,
+      `const now = Date.now();
+       ['dumbbell-bench-press','dumbbell-shoulder-press'].forEach((ex, i) => data.setRecords.push({
+         id: 'a' + i, sessionId: 's' + i, exerciseId: ex, order: 0, side: 'both', weightKg: 9, pieceCount: 2, reps: 10,
+         effort: '2', pain: false, isWarmup: false, completedAt: new Date(now - 86400000).toISOString(), updatedVersion: 1 }));`
+    );
+    await page.getByRole("button", { name: "おまかせで選ぶ" }).click();
+    await expect(page.locator(".bodymap-hint")).toHaveText("選択中：上腕二頭筋・腹筋");
+  });
+
+  test("おまかせで選んだ部位で候補を作れる", async ({ page }) => {
+    await page.getByRole("button", { name: "おまかせで選ぶ" }).click();
+    await buildProposal(page);
+    expect(await page.locator("section.card[aria-label]").count()).toBeGreaterThan(0);
   });
 });

@@ -14,7 +14,7 @@ import type { Proposal } from "../domain/types";
 import { Card, EmptyState, Icon, Segmented, Sheet } from "../components/ui";
 import { MotionGuide } from "../components/MotionGuide";
 import { BodyMap } from "../components/BodyMap";
-import { muscleNamesOf } from "../domain/bodyMap";
+import { describeAutoPick, muscleNamesOf, suggestGroups } from "../domain/bodyMap";
 
 interface Props {
   onStartWorkout: () => void;
@@ -23,7 +23,12 @@ interface Props {
 
 export function Today({ onStartWorkout, onOpenSettings }: Props) {
   const { data, addProposal, startSession } = useAppData();
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [selectedGroups, setSelectedGroupsRaw] = useState<string[]>([]);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  const setSelectedGroups = (ids: string[]) => {
+    setAutoNote(null); // 手で変えたら、おまかせの説明は消す
+    setSelectedGroupsRaw(ids);
+  };
   const [minutes, setMinutes] = useState(data.personalSettings.sessionMinutes ?? 30);
   const [fatigue, setFatigue] = useState<"low" | "mid" | "high">("low");
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -148,7 +153,16 @@ export function Today({ onStartWorkout, onOpenSettings }: Props) {
       <Card>
         <div className="field">
           <span className="field-label">鍛える部位（人体図をタップ）</span>
-          <BodyMap value={selectedGroups} onChange={setSelectedGroups} />
+          <BodyMap
+            value={selectedGroups}
+            onChange={setSelectedGroups}
+            note={autoNote}
+            onAuto={() => {
+              const picks = suggestGroups(data.setRecords, data.exercises, new Date());
+              setSelectedGroupsRaw(picks.map((p) => p.id));
+              setAutoNote(describeAutoPick(picks));
+            }}
+          />
         </div>
         <div className="field">
           <span className="field-label">使える時間</span>
